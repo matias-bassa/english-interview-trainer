@@ -291,10 +291,17 @@ function getCourseProgress(module = getCourseModule()) {
     stats.courseProgress[module.id] = { started: false, currentStep: 0, completedLessons: [], exercises: 0, correct: 0, incorrect: 0, weaknesses: {}, activityAnswers: {}, examDraft: {}, examCompleted: false, examAttempts: 0, examScore: null, examCorrect: 0, examIncorrect: 0, examCategories: [], examAnswers: [] };
   }
   const progress = stats.courseProgress[module.id];
-  if (module.id === 'past-simple-present-perfect' && progress.courseStructureVersion !== 2) {
-    const previousStep = Math.max(0, Number(progress.currentStep) || 0);
-    progress.currentStep = previousStep === 3 ? 2 : previousStep >= 4 ? previousStep - 1 : previousStep;
-    progress.courseStructureVersion = 2;
+  if (module.id === 'past-simple-present-perfect' && progress.courseStructureVersion !== 3) {
+    const previousVersion = Number(progress.courseStructureVersion) || 0;
+    if (previousVersion < 2) {
+      const previousStep = Math.max(0, Number(progress.currentStep) || 0);
+      progress.currentStep = previousStep === 3 ? 2 : previousStep >= 4 ? previousStep - 1 : previousStep;
+    }
+    if (previousVersion < 3 && typeof progress.examDraft?.d === 'string' && progress.examDraft.d) {
+      progress.examDraft.legacyProductionDraft = progress.examDraft.d;
+      delete progress.examDraft.d;
+    }
+    progress.courseStructureVersion = 3;
     saveStats();
   }
   progress.completedLessons = Array.isArray(progress.completedLessons) ? progress.completedLessons : [];
@@ -320,6 +327,12 @@ function renderCourseProgress() {
   }
   target.innerHTML = `<div class="course-progress-top"><div><b>${percent}%</b><span>Progress</span></div><div class="course-progress-track"><span style="width:${percent}%"></span></div></div><div class="course-progress-grid"><span>${completedCount}/${lessonsTotal} lessons completed</span><span>${progress.exercises} practice/exam responses · ${progress.correct} correct · ${progress.incorrect} incorrect</span><span>Final exam: ${progress.examCompleted ? `${progress.examScore}% · ${progress.examAttempts} attempt(s)` : 'not completed'}</span><span>Weaknesses detected: ${weaknessLine}</span></div>`;
 }
+function renderCoursePartNavigator(module, progress) {
+  return `<nav class="course-part-nav" aria-label="Module 1 parts"><span class="course-part-nav-label">MODULE 1 · JUMP TO A PART</span><div class="course-part-nav-list">${module.lessons.map((lesson, index) => `<button type="button" class="course-part-button${index === progress.currentStep ? ' is-current' : ''}" data-course-step="${index}"${index === progress.currentStep ? ' aria-current="step"' : ''}><span class="course-part-number">${String(index + 1).padStart(2, '0')}</span><span>${escapeHTML(lesson.title)}</span></button>`).join('')}</div></nav>`;
+}
+function scrollToCourseTop() {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
 function renderCourse() {
   const module = getCourseModule();
   if (!module) return;
@@ -332,8 +345,19 @@ function renderCourse() {
   const percent = Math.round(completedCount / totalLessons * 100);
   const root = $('#course-module-root');
   const videoLesson = step.type === 'video';
-  root.innerHTML = `<div class="course-shell">${videoLesson ? '' : `<div class="course-module-overview"><div><span class="pill pill-course">INTENSIVE COURSE · MODULE 1</span><h2>${escapeHTML(module.title)}</h2><p>Progress saves on this device. Move through the course in order, and return to earlier lessons whenever you need.</p></div><div class="course-percent"><strong>${percent}%</strong><span>complete</span></div></div><div class="course-progress-track"><span style="width:${percent}%"></span></div><div class="course-step-meta"><span>LESSON ${progress.currentStep + 1} OF ${module.lessons.length}</span><b>${escapeHTML(step.title)}</b></div>`}<article class="course-lesson-card"><div class="course-lesson-content">${renderCourseStep(module, progress, step)}</div>${step.type === 'exam' ? '' : `<div class="course-step-footer">${videoLesson ? '' : `<span id="course-step-status" aria-live="polite">${progress.completedLessons.includes(step.id) ? 'You have completed this lesson. You can review it or continue.' : 'Take your time. You can go back whenever you need.'}</span>`}<div class="course-navigation"><button class="button button-secondary" id="course-back"${progress.currentStep === 0 ? ' disabled' : ''}>← Previous</button><button class="button button-primary" id="course-next">${progress.currentStep === 0 ? 'Start course' : progress.currentStep === module.lessons.length - 3 ? 'Start final exam' : 'Next'} →</button></div></div>`}</article></div>`;
-  $('#course-back')?.addEventListener('click', () => { progress.currentStep = Math.max(0, progress.currentStep - 1); saveStats(); renderCourse(); });
+  const courseFooter = step.type === 'exam'
+    ? `<div class="course-step-footer"><div class="course-navigation"><button class="button button-secondary" id="course-back"${progress.currentStep === 0 ? ' disabled' : ''}>← Previous</button></div></div>`
+    : `<div class="course-step-footer">${videoLesson ? '' : `<span id="course-step-status" aria-live="polite">${progress.completedLessons.includes(step.id) ? 'You have completed this lesson. You can review it or continue.' : 'Take your time. You can go back whenever you need.'}</span>`}<div class="course-navigation"><button class="button button-secondary" id="course-back"${progress.currentStep === 0 ? ' disabled' : ''}>← Previous</button><button class="button button-primary" id="course-next"${progress.currentStep === module.lessons.length - 1 ? ' disabled' : ''}>${progress.currentStep === 0 ? 'Start course' : progress.currentStep === module.lessons.length - 3 ? 'Start final exam' : 'Next'} →</button></div></div>`;
+  root.innerHTML = `<div class="course-shell">${videoLesson ? '' : `<div class="course-module-overview"><div><span class="pill pill-course">INTENSIVE COURSE · MODULE 1</span><h2>${escapeHTML(module.title)}</h2><p>Progress saves on this device. Move through the course in order, and return to earlier lessons whenever you need.</p></div><div class="course-percent"><strong>${percent}%</strong><span>complete</span></div></div><div class="course-progress-track"><span style="width:${percent}%"></span></div><div class="course-step-meta"><span>LESSON ${progress.currentStep + 1} OF ${module.lessons.length}</span><b>${escapeHTML(step.title)}</b></div>`}${renderCoursePartNavigator(module, progress)}<article class="course-lesson-card"><div class="course-lesson-content">${renderCourseStep(module, progress, step)}</div>${courseFooter}</article></div>`;
+  $('#course-back')?.addEventListener('click', () => { progress.currentStep = Math.max(0, progress.currentStep - 1); saveStats(); renderCourse(); scrollToCourseTop(); });
+  $$('.course-part-button').forEach(button => button.addEventListener('click', () => {
+    const stepIndex = Number(button.dataset.courseStep);
+    if (!Number.isInteger(stepIndex) || !module.lessons[stepIndex]) return;
+    progress.currentStep = stepIndex;
+    saveStats();
+    renderCourse();
+    scrollToCourseTop();
+  }));
   const next = $('#course-next');
   if (next) next.addEventListener('click', () => advanceCourse(module, progress, step));
   $$('.course-example-reveal').forEach(button => button.addEventListener('click', () => {
@@ -345,7 +369,7 @@ function renderCourse() {
   const examSubmit = $('#course-exam-submit');
   if (examSubmit) examSubmit.addEventListener('click', () => submitCourseExam(module, progress));
   const reviewExam = $('#course-review-exam');
-  if (reviewExam) reviewExam.addEventListener('click', () => { progress.currentStep = module.lessons.findIndex(lesson => lesson.type === 'exam'); saveStats(); renderCourse(); });
+  if (reviewExam) reviewExam.addEventListener('click', () => { progress.currentStep = module.lessons.findIndex(lesson => lesson.type === 'exam'); saveStats(); renderCourse(); scrollToCourseTop(); });
   if (step.type === 'video') bindCourseVideoLesson(module, step);
 }
 function renderCourseStep(module, progress, step) {
@@ -511,7 +535,7 @@ function renderCourseActivities(module, progress, step, exercises, kind) {
     const key = `${step.id}-${index}`;
     const saved = progress.activityAnswers[key];
     const control = exercise.kind === 'correction'
-      ? `<p class="course-exercise-instruction">${escapeHTML(exercise.correctionInstruction || 'Correct the sentence in English.')}</p><label class="course-answer-label" for="course-answer-${key}">Write your correction in English.</label><input class="course-text-input" id="course-answer-${key}" value="${escapeHTML(saved?.response || '')}" placeholder="Write the corrected sentence in English…">`
+      ? `<p class="course-exercise-instruction">${escapeHTML(exercise.correctionInstruction || 'Correct the sentence in English.')}</p><label class="course-answer-label" for="course-answer-${key}">Your answer</label><input class="course-text-input" id="course-answer-${key}" value="${escapeHTML(saved?.response || '')}" placeholder="Your corrected sentence…">`
       : `<p class="course-exercise-instruction">Choose the best answer.</p><label class="course-answer-label" for="course-answer-${key}">Your answer</label><select class="course-select" id="course-answer-${key}"><option value="">Choose an answer…</option>${exercise.options.map((option, optionIndex) => `<option value="${optionIndex}"${String(saved?.response) === String(optionIndex) ? ' selected' : ''}>${escapeHTML(option)}</option>`).join('')}</select>`;
     const correctAnswer = exercise.kind === 'correction' ? exercise.correction : exercise.options?.[exercise.answer];
     const answerLabel = exercise.kind === 'correction' ? (saved?.isCorrect ? 'Correct answer:' : 'One natural correction:') : 'Correct answer:';
@@ -555,12 +579,14 @@ function advanceCourse(module, progress, step) {
   saveStats();
   renderCourse();
   renderStats();
+  scrollToCourseTop();
 }
 function renderCourseExam(module, progress) {
   const exam = module.exam;
   const draft = progress.examDraft;
   const selectQuestion = (field, question) => `<label class="course-exam-question"><span>${escapeHTML(question.prompt)}</span><small class="course-exercise-instruction">Choose the best answer.</small><select class="course-select" data-course-exam="${field}"><option value="">Choose an answer…</option>${question.options.map((option, index) => `<option value="${index}"${String(draft[field]) === String(index) ? ' selected' : ''}>${escapeHTML(option)}</option>`).join('')}</select></label>`;
-  return `<p class="course-kicker">FINAL EXAM · MODULE 1</p><h2>Show what you understand</h2><p class="course-copy">Complete all five parts. Part D checks whether your written answer demonstrates both meanings; its text check is approximate and the explanation shows exactly what it looked for.</p><div class="exam-part"><h3>Part A — Choose</h3>${exam.partA.map((question, index) => selectQuestion(`a-${index}`, question)).join('')}</div><div class="exam-part"><h3>Part B — Sentence correction</h3><label class="course-exam-question"><span>${escapeHTML(exam.partB.prompt)}</span><small class="course-exercise-instruction">Correct the sentence in English. Write your correction in English.</small><input class="course-text-input" data-course-exam="b" value="${escapeHTML(draft.b || '')}" placeholder="Write the corrected sentence in English…"></label></div><div class="exam-part"><h3>Part C — Why?</h3>${selectQuestion('c', exam.partC)}</div><div class="exam-part"><h3>Part D — Interview answer</h3><label class="course-exam-question"><span>${escapeHTML(exam.partD.prompt)}</span><small class="course-exercise-instruction">Write your answer in English.</small><textarea class="course-text-input course-production" data-course-exam="d" rows="5" placeholder="Write your interview answer in English…">${escapeHTML(draft.d || '')}</textarea></label></div><div class="exam-part"><h3>Part E — Interview Grammar</h3>${exam.partE.map((question, index) => selectQuestion(`e-${index}`, question)).join('')}</div><p id="course-exam-status" class="course-exam-status" aria-live="polite"></p><button class="button button-primary" id="course-exam-submit">Submit final exam</button>`;
+  const legacyDraft = draft.legacyProductionDraft ? `<details class="legacy-course-draft"><summary>View your previous written draft (not scored)</summary><p>${escapeHTML(draft.legacyProductionDraft)}</p></details>` : '';
+  return `<p class="course-kicker">FINAL EXAM · MODULE 1</p><h2>Show what you understand</h2><p class="course-copy">Complete all five parts. Multiple-choice items are checked exactly; the written correction accepts reasonable Past Simple variants.</p><div class="exam-part"><h3>Part A — Choose</h3>${exam.partA.map((question, index) => selectQuestion(`a-${index}`, question)).join('')}</div><div class="exam-part"><h3>Part B — Sentence correction</h3><label class="course-exam-question"><span>${escapeHTML(exam.partB.prompt)}</span><small class="course-exercise-instruction">Correct the sentence in English.</small><input class="course-text-input" data-course-exam="b" value="${escapeHTML(draft.b || '')}" placeholder="Your corrected sentence…"></label></div><div class="exam-part"><h3>Part C — Explain the meaning</h3>${selectQuestion('c', exam.partC)}</div><div class="exam-part"><h3>Part D — Interview application</h3>${legacyDraft}${selectQuestion('d', exam.partD)}</div><div class="exam-part"><h3>Part E — Interview Grammar</h3>${exam.partE.map((question, index) => selectQuestion(`e-${index}`, question)).join('')}</div><p id="course-exam-status" class="course-exam-status" aria-live="polite"></p><button class="button button-primary" id="course-exam-submit">Submit final exam</button>`;
 }
 function handleCourseDraftInput(event) {
   const field = event.target.dataset.courseExam;
@@ -581,12 +607,11 @@ function submitCourseExam(module, progress) {
   };
   exam.partA.forEach((question, index) => record(`Part A · ${question.prompt}`, question.category, Number(draft[`a-${index}`]) === question.answer, question.options[Number(draft[`a-${index}`])], question.options[question.answer], question.explanation));
   const bCorrect = exam.partB.accepted.test(draft.b.trim());
-  record('Part B · Correct the sentence', exam.partB.category, bCorrect, draft.b.trim(), 'I worked there in 2020. Other corrections that keep the finished time and past meaning may also be correct.', exam.partB.explanation);
+  record('Part B · Correct the sentence', exam.partB.category, bCorrect, draft.b.trim(), exam.partB.correction, exam.partB.explanation);
   const c = exam.partC;
   record(`Part C · ${c.prompt}`, c.category, Number(draft.c) === c.answer, c.options[Number(draft.c)], c.options[c.answer], c.explanation);
-  const production = assessProductionAnswer(draft.d);
-  record('Part D · Production: finished past event', 'Past Simple', production.past, draft.d.trim(), 'Use a past action with a specific finished time.', production.past ? 'Se detectó una acción pasada con un momento terminado.' : 'La comprobación local no detectó una acción pasada junto con un momento terminado, como “in 2020”, “last year” o “two years ago”. Puede haber formulaciones correctas que el sistema no reconozca.');
-  record('Part D · Production: relevant experience', 'Present Perfect vs Past Simple', production.present, draft.d.trim(), 'Use a Present Perfect experience or current experience expression.', production.present ? 'Se detectó una forma de Present Perfect o la expresión “have experience”.' : 'La comprobación local no detectó Present Perfect ni la expresión “have experience”. Puede haber otras formulaciones válidas que el sistema no reconozca.');
+  const interviewApplication = exam.partD;
+  record('Part D · Interview application', interviewApplication.category, Number(draft.d) === interviewApplication.answer, interviewApplication.options[Number(draft.d)], interviewApplication.options[interviewApplication.answer], interviewApplication.explanation);
   exam.partE.forEach((question, index) => record(`Part E · ${question.prompt}`, question.category, Number(draft[`e-${index}`]) === question.answer, question.options[Number(draft[`e-${index}`])], question.options[question.answer], question.explanation));
   const correct = details.filter(item => item.isCorrect).length;
   progress.examCompleted = true;
@@ -602,21 +627,15 @@ function submitCourseExam(module, progress) {
   saveStats();
   renderStats();
   renderCourse();
-}
-function assessProductionAnswer(text) {
-  const finishedTime = /\b(?:yesterday|last\s+(?:week|year|month)|in\s+20\d{2}|\d+\s+(?:day|week|month|year)s?\s+ago|when\s+i\s+was)\b/i.test(text);
-  const pastVerbs = /\b(?:worked|started|moved|helped|handled|assisted|supported|solved|managed|lived|joined|provided|responded|answered|did|was|were|went|began|spoke|learned|learnt)\b/gi;
-  const past = finishedTime && [...text.matchAll(pastVerbs)].some(match => !/\b(?:have|has|['’]ve)\s*$/i.test(text.slice(Math.max(0, match.index - 12), match.index)));
-  const presentPerfect = /\b(?:i|we|they|you|he|she|it)\s+(?:have|has|['’]ve|['’]s)\s+(?:(?:ever|never|already|just|also|recently)\s+)?(?:\w+(?:ed|en|n)|been|gone|done|had|made|built|left|felt|kept|found|sent|known|seen|written|spoken|led|read|won|lost|bought|brought|taught|thought|got|gotten)\b|\b(?:i|we|they|you|he|she|it)\s+(?:have|has)\s+(?:some\s+)?experience\b/i.test(text);
-  return { past, present: presentPerfect };
+  scrollToCourseTop();
 }
 function renderCourseResults(module, progress) {
   if (!progress.examCompleted) return '<p>Submit the final exam to see your module results here.</p>';
   const passed = progress.examScore >= 70;
   const details = progress.examAnswers.map(item => {
     const isSentenceCorrection = item.label.startsWith('Part B');
-    const isWrittenResponse = item.label.startsWith('Part D');
-    const answerLabel = isSentenceCorrection ? 'One natural correction:' : isWrittenResponse ? 'One possible answer:' : 'Correct answer:';
+    const isWrittenResponse = item.label.startsWith('Part D · Production');
+    const answerLabel = isSentenceCorrection ? (item.isCorrect ? 'Correct answer:' : 'One natural correction:') : isWrittenResponse ? 'One possible answer:' : 'Correct answer:';
     const answerText = isWrittenResponse ? 'For example: “I worked in support in 2020, and I have helped customers with technical issues.” Many answers are possible.' : item.answer;
     return `<article class="exam-result-item ${item.isCorrect ? 'course-correct' : 'course-incorrect'}"><div><b>${item.isCorrect ? '✓ Correct' : 'Not quite.'} · ${escapeHTML(item.label)}</b><span>${escapeHTML(item.category)}</span></div><p><b>Your answer:</b> ${escapeHTML(item.userAnswer)}</p><p><b>${answerLabel}</b> ${escapeHTML(answerText)}</p><p>${escapeHTML(item.explanation)}</p></article>`;
   }).join('');
