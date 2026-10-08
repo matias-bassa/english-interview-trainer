@@ -33,56 +33,54 @@ window.INTENSIVE_COURSE_MODULES = [
     theory: {
       past: {
         heading: 'Past Simple: pasado terminado',
-        body: 'Usá Past Simple cuando presentás una acción como terminada y ubicada dentro de un período pasado que ya cerró. El año, el día o el período pueden estar nombrados o quedar claros por el contexto. No importa que la experiencia siga siendo importante para vos: importa que el hecho que contás ocurrió en un tiempo terminado.',
-        examples: ['I worked at a support company in 2020.', 'I moved to another city in 2017.', 'I worked there for five months.'],
-        signals: ['yesterday', 'last week', 'last year', 'in 2020', 'two days ago', 'two years ago', 'when I was…']
+        body: 'Usamos Past Simple cuando presentamos una acción dentro de un período pasado que ya terminó. El momento puede estar dicho o quedar claro por el contexto.'
       },
       perfect: {
         heading: 'Present Perfect: pasado conectado con ahora',
-        body: 'Usá Present Perfect para contar una experiencia hasta ahora, una situación que continúa, o una acción pasada cuyo resultado importa en el presente. Normalmente no indicás un momento pasado terminado. La forma have/has + participio es una ayuda para construirlo; la decisión principal es qué relación querés expresar con el presente.',
-        examples: ['I have worked in technical support.', 'I have worked with customers.', 'I have never worked remotely before.', 'I have lived in another city since 2017.'],
-        signals: ['ever', 'never', 'already', 'yet', 'just', 'since', 'for']
+        body: 'Usamos Present Perfect para experiencias hasta ahora, situaciones que continúan o acciones pasadas relevantes en el presente. Normalmente no nombramos un momento pasado terminado.'
       }
     },
     studyGuide: {
-      theoryIntro: 'La decisión depende del período que querés expresar: un hecho ubicado en un tiempo pasado que ya terminó, o una experiencia/situación conectada con el presente.',
-      keyRules: [
-        { title: 'Past Simple', rule: 'Usalo para acciones presentadas dentro de un período pasado terminado. El momento puede estar expresado o entenderse por contexto.', example: 'I worked at a support company in 2020.' },
-        { title: 'Present Perfect', rule: 'Usalo para experiencias hasta ahora, situaciones que continúan o resultados pasados relevantes ahora, normalmente sin indicar una fecha pasada terminada.', example: 'I have worked in technical support.' },
-        { title: 'Form', rule: 'Present Perfect = have/has + past participle. En preguntas de experiencia, have/has va antes del sujeto.', example: 'Have you ever worked with customers?' }
+      theoryIntro: 'Primero decidí qué querés comunicar: una acción dentro de un período pasado terminado, o una experiencia/situación conectada con el presente.',
+      comparison: {
+        past: { title: 'Past Simple', sentence: 'I worked there in 2020.', translation: 'Trabajé allí en 2020.', meaning: 'Período pasado terminado.' },
+        perfect: { title: 'Present Perfect', sentence: 'I have worked in technical support.', translation: 'He trabajado en soporte técnico. / Tengo experiencia en soporte técnico.', meaning: 'Experiencia hasta ahora o conexión con el presente.' },
+        question: 'Did I mention a finished past time?', questionTranslation: '¿Mencioné un momento pasado terminado?', yes: 'YES → normally Past Simple.', no: 'NO → consider Present Perfect for experience up to now, continuity, or present relevance. Context matters; this is a guide, not an absolute formula.'
+      },
+      forms: [
+        { title: 'Past Simple', examples: ['I worked.', "I didn't work.", 'Did you work?'] },
+        { title: 'Present Perfect', examples: ['I have worked.', "I haven't worked.", 'Have you worked?'] }
       ],
+      presentPerfectFormula: 'Present Perfect = have/has + past participle.',
+      formExample: 'Have you ever worked with customers?',
       additionalExamples: [
-        { sentence: 'I started working in customer service two years ago.', note: '“Two years ago” ubica el comienzo en un momento pasado terminado.' },
-        { sentence: 'I have handled customer questions in English.', note: 'Presenta una experiencia relevante hasta ahora y no especifica cuándo.' },
-        { sentence: 'I have used ticketing systems since 2022.', note: '“Since 2022” conecta el comienzo con una situación que continúa ahora.' }
+        { sentence: 'We resolved the issue last Monday.', translation: 'Resolvimos el problema el lunes pasado.', note: '“Last Monday” indica un momento pasado terminado.' },
+        { sentence: 'She has supported customers since 2021.', translation: 'Ella brinda soporte a clientes desde 2021.', note: 'La situación comenzó en 2021 y continúa hasta ahora.' },
+        { sentence: 'I have just finished the report.', translation: 'Acabo de terminar el informe.', note: 'La acción pasada tiene un resultado relevante ahora.' }
       ],
       commonMistakes: [
-        { wrong: 'I have worked there in 2020.', correct: 'I worked there in 2020.', note: '“In 2020” es un momento terminado. En este significado, elegí Past Simple.' },
+        { wrong: 'I have worked there in 2020.', correct: 'I worked there in 2020.', note: '“In 2020” identifica un período terminado, por eso normalmente usamos Past Simple.', noteEnglish: '“In 2020” identifies a finished period, so Past Simple is normally used.' },
         { wrong: 'Have you ever work with customers?', correct: 'Have you ever worked with customers?', note: 'Después de have, se usa el participio pasado: worked.' },
         { wrong: 'I have worked there for five months.', correct: 'I worked there for five months.', note: 'Si los cinco meses ya terminaron, Past Simple es natural. “For” por sí sola no determina el tiempo.' }
       ],
       interviewEnglish: [
-        { sentence: 'I worked in technical support in 2020.', purpose: 'Da un período laboral específico y terminado.' },
-        { sentence: 'I have helped customers solve technical problems.', purpose: 'Resume experiencia relevante sin nombrar una fecha terminada.' },
-        { sentence: 'I have worked with international customers, and I handled email support in my previous role.', purpose: 'Combina experiencia general con una tarea del puesto anterior.' }
+        { sentence: 'I worked as a technical support representative at AyP Computación.', translation: 'Trabajé como representante de soporte técnico en AyP Computación.', purpose: 'Describe un puesto anterior como experiencia terminada.' },
+        { sentence: 'I have experience working with customers.', translation: 'Tengo experiencia trabajando con clientes.', purpose: 'Presenta una capacidad relevante actualmente.' },
+        { sentence: 'I have worked in technical support.', translation: 'He trabajado en soporte técnico.', purpose: 'Resume experiencia laboral relevante hasta ahora.' }
       ]
     },
-    comparisons: [
-      { past: 'I worked there in 2020.', present: 'I have worked in customer support.', note: 'La primera frase ubica el trabajo en 2020, un período terminado. La segunda presenta la experiencia sin decir cuándo ocurrió; esa experiencia es relevante ahora.' },
-      { past: 'I lived in another city from 2017 to 2020.', present: 'I have lived in another city since 2017.', note: 'La primera situación terminó en 2020. En la segunda, “since 2017” conecta el comienzo con una situación que continúa ahora.' }
-    ],
     examples: [
-      { sentence: 'I worked at a support company in 2020.', label: 'PAST SIMPLE', explanation: '“In 2020” es un momento específico de un año terminado.' },
-      { sentence: 'I have worked with customers.', label: 'PRESENT PERFECT', explanation: 'Contás una experiencia relevante hasta ahora sin especificar cuándo.' },
-      { sentence: 'I started working in customer service two years ago.', label: 'PAST SIMPLE', explanation: '“Two years ago” señala cuándo empezó; el punto de inicio quedó en el pasado.' },
-      { sentence: 'I have worked in support for five years.', label: 'PRESENT PERFECT', explanation: '“For five years” puede describir un período que llega hasta ahora. Si esos cinco años ya terminaron, el contexto puede requerir Past Simple.' },
-      { sentence: 'Have you ever handled a difficult customer?', label: 'PRESENT PERFECT', explanation: 'Preguntás por una experiencia en cualquier momento hasta ahora, sin pedir una fecha.' },
-      { sentence: 'When did you start working remotely?', label: 'PAST SIMPLE', explanation: '“When” pide el momento específico en que ocurrió el comienzo.' }
+      { sentence: 'I worked at a support company in 2020.', translation: 'Trabajé en una empresa de soporte en 2020.', label: 'PAST SIMPLE', explanation: '“In 2020” es un momento específico de un año terminado.' },
+      { sentence: 'I have worked with customers.', translation: 'He trabajado con clientes. / Tengo experiencia trabajando con clientes.', label: 'PRESENT PERFECT', explanation: 'Contás una experiencia relevante hasta ahora sin especificar cuándo.' },
+      { sentence: 'I started working in customer service two years ago.', translation: 'Empecé a trabajar en atención al cliente hace dos años.', label: 'PAST SIMPLE', explanation: '“Two years ago” señala cuándo empezó; el punto de inicio quedó en el pasado.' },
+      { sentence: 'I have worked in support for five years.', translation: 'He trabajado en soporte durante cinco años.', label: 'PRESENT PERFECT', explanation: '“For five years” puede describir un período que llega hasta ahora. Si esos cinco años ya terminaron, el contexto puede requerir Past Simple.' },
+      { sentence: 'Have you ever handled a difficult customer?', translation: '¿Alguna vez atendiste a un cliente difícil?', label: 'PRESENT PERFECT', explanation: 'Preguntás por una experiencia en cualquier momento hasta ahora, sin pedir una fecha.' },
+      { sentence: 'When did you start working remotely?', translation: '¿Cuándo empezaste a trabajar de forma remota?', label: 'PAST SIMPLE', explanation: '“When” pide el momento específico en que ocurrió el comienzo.' }
     ],
     guidedExercises: [
       { prompt: 'I ___ there in 2020.', options: ['worked', 'have worked'], answer: 0, category: 'Past Simple', explanation: '“In 2020” indica un momento específico ya terminado, por eso va Past Simple.' },
       { prompt: 'So far in my career, I ___ with customers.', options: ['worked', 'have worked'], answer: 1, category: 'Present Perfect vs Past Simple', explanation: '“So far” presenta una experiencia acumulada hasta el presente, sin ubicarla en un período terminado.' },
-      { prompt: 'What is wrong with this sentence? “I have worked there in 2020.”', kind: 'correction', answer: /\bi\s+(?:worked|was working)\b.*\bin 2020\b/i, correction: 'I worked there in 2020.', category: 'Past Simple', explanation: '“In 2020” es un momento terminado y específico. Una corrección natural es “I worked there in 2020.” También hay otras correcciones válidas, como “I was working there in 2020,” según el contexto.' }
+      { prompt: 'I have worked there in 2020.', kind: 'correction', answer: /\bi\s+(?:worked|was working)\b.*\bin 2020\b/i, correction: 'I worked there in 2020.', category: 'Past Simple', explanation: '“In 2020” indica un período específico y terminado, por eso normalmente usamos Past Simple. “I was working there in 2020” también puede ser natural según el contexto.', correctionInstruction: 'Correct the sentence in English.' }
     ],
     practiceExercises: [
       { prompt: 'I ___ at a support company from March to August 2020.', options: ['worked', 'have worked'], answer: 0, category: 'Past Simple', explanation: 'El período “from March to August 2020” está terminado.' },
