@@ -130,10 +130,6 @@ let activeCourseModuleId = window.INTENSIVE_COURSE_MODULES?.[0]?.id || '';
 const LESSON_TIMING = Object.freeze({ segmentPause: 700, examplePauseBefore: 1200, importantPause: 1800, scenePause: 1500 });
 let courseLessonScene = 0;
 let courseLessonStage = 0;
-let courseLessonPlaying = false;
-let courseLessonTimer = null;
-let courseNarrationMode = null;
-let courseNarrationSegment = 0;
 let courseNarrationToken = 0;
 let courseLessonSubtitle = '';
 let courseLessonSubtitleLang = 'es';
@@ -141,10 +137,6 @@ let courseNarrationStatus = 'Ready';
 let courseSpeechVoices = [];
 let courseVoiceRate = 1;
 let courseVoiceEventsBound = false;
-let courseLessonAutoplay = false;
-let courseLessonPaused = false;
-let courseLessonWaitingContinue = false;
-let courseLessonPendingAction = null;
 let ttsInitialized = false;
 let ttsLanguage = 'en';
 let ttsSpeed = 1;
@@ -329,9 +321,6 @@ function renderCourseProgress() {
   target.innerHTML = `<div class="course-progress-top"><div><b>${percent}%</b><span>Progress</span></div><div class="course-progress-track"><span style="width:${percent}%"></span></div></div><div class="course-progress-grid"><span>${progress.completedLessons.length}/${lessonsTotal} lessons completed</span><span>${progress.exercises} practice/exam responses · ${progress.correct} correct · ${progress.incorrect} incorrect</span><span>Final exam: ${progress.examCompleted ? `${progress.examScore}% · ${progress.examAttempts} attempt(s)` : 'not completed'}</span><span>Weaknesses detected: ${weaknessLine}</span></div>`;
 }
 function renderCourse() {
-  clearTimeout(courseLessonTimer);
-  clearInterval(courseLessonTimer);
-  courseLessonTimer = null;
   const module = getCourseModule();
   if (!module) return;
   const progress = getCourseProgress(module);
@@ -341,8 +330,9 @@ function renderCourse() {
   const totalLessons = module.lessons.length - 1;
   const percent = Math.round(progress.completedLessons.length / totalLessons * 100);
   const root = $('#course-module-root');
-  root.innerHTML = `<div class="course-shell"><div class="course-module-overview"><div><span class="pill pill-course">INTENSIVE COURSE · MODULE 1</span><h2>${escapeHTML(module.title)}</h2><p>Progress saves on this device. Move through the lesson in order, and return to any completed step.</p></div><div class="course-percent"><strong>${percent}%</strong><span>complete</span></div></div><div class="course-progress-track"><span style="width:${percent}%"></span></div><div class="course-step-meta"><span>STEP ${progress.currentStep + 1} OF ${module.lessons.length}</span><b>${escapeHTML(step.title)}</b></div><article class="course-lesson-card"><div class="course-lesson-content">${renderCourseStep(module, progress, step)}</div><div class="course-step-footer"><span id="course-step-status" aria-live="polite">${progress.completedLessons.includes(step.id) ? 'You have completed this lesson. You can review it or continue.' : 'Take your time. You can go back whenever you need.'}</span><div class="course-navigation"><button class="button button-secondary" id="course-back"${progress.currentStep === 0 ? ' disabled' : ''}>← Back</button>${step.type === 'exam' ? '' : `<button class="button button-primary" id="course-next">${progress.currentStep === 0 ? 'Start module' : progress.currentStep === module.lessons.length - 3 ? 'Start final exam' : 'Next step'} →</button>`}</div></div></article></div>`;
-  $('#course-back').addEventListener('click', () => { progress.currentStep = Math.max(0, progress.currentStep - 1); saveStats(); renderCourse(); });
+  const guidedStep = ['interactive', 'theory', 'visual'].includes(step.type);
+  root.innerHTML = `<div class="course-shell"><div class="course-module-overview"><div><span class="pill pill-course">INTENSIVE COURSE · MODULE 1</span><h2>${escapeHTML(module.title)}</h2><p>Progress saves on this device. Move through the lesson in order, and return to any completed step.</p></div><div class="course-percent"><strong>${percent}%</strong><span>complete</span></div></div><div class="course-progress-track"><span style="width:${percent}%"></span></div><div class="course-step-meta"><span>LESSON ${progress.currentStep + 1} OF ${module.lessons.length}</span><b>${escapeHTML(step.title)}</b></div><article class="course-lesson-card"><div class="course-lesson-content">${renderCourseStep(module, progress, step)}</div>${guidedStep ? '' : `<div class="course-step-footer"><span id="course-step-status" aria-live="polite">${progress.completedLessons.includes(step.id) ? 'You have completed this lesson. You can review it or continue.' : 'Take your time. You can go back whenever you need.'}</span><div class="course-navigation"><button class="button button-secondary" id="course-back"${progress.currentStep === 0 ? ' disabled' : ''}>← Previous</button>${step.type === 'exam' ? '' : `<button class="button button-primary" id="course-next">${progress.currentStep === 0 ? 'Start module' : progress.currentStep === module.lessons.length - 3 ? 'Start final exam' : 'Next step'} →</button>`}</div></div>`}</article></div>`;
+  $('#course-back')?.addEventListener('click', () => { progress.currentStep = Math.max(0, progress.currentStep - 1); courseLessonStage = 0; saveStats(); renderCourse(); });
   const next = $('#course-next');
   if (next) next.addEventListener('click', () => advanceCourse(module, progress, step));
   $$('.course-visual-control').forEach(button => button.addEventListener('click', () => { progress.visualMode = button.dataset.mode; renderCourse(); }));
@@ -357,17 +347,13 @@ function renderCourse() {
   const reviewExam = $('#course-review-exam');
   if (reviewExam) reviewExam.addEventListener('click', () => { progress.currentStep = module.lessons.findIndex(lesson => lesson.type === 'exam'); saveStats(); renderCourse(); });
   if (step.type === 'interactive') bindCourseInteractiveLesson();
+  else if (step.type === 'theory' || step.type === 'visual') bindCourseGuidedLesson();
 }
 function renderCourseStep(module, progress, step) {
   switch (step.type) {
     case 'introduction': return `<p class="course-kicker">A CLEAR WAY TO TALK ABOUT YOUR EXPERIENCE</p><h2>Choose the tense that matches the meaning.</h2><p class="course-copy">En esta clase vas a aprender a distinguir entre una experiencia terminada en un período pasado y una experiencia que sigue teniendo relación con el presente. No se trata de memorizar una palabra señal: se trata de entender qué querés comunicar.</p><div class="course-outcomes"><div><b>01</b><span>Understand when a past period is finished.</span></div><div><b>02</b><span>Connect experience with the present.</span></div><div><b>03</b><span>Use both forms naturally in interview answers.</span></div></div><div class="course-callout"><b>La pregunta clave:</b> ¿Estoy ubicando la acción en un momento pasado terminado, o estoy hablando de una experiencia conectada con ahora?</div>`;
     case 'interactive': return renderCourseInteractiveLesson();
-    case 'theory': return `<div class="tense-theory-grid"><section class="tense-theory-card past-card"><span class="tense-label">PAST SIMPLE · WHEN?</span><p class="tense-intuition">Am I talking about <b>when</b> it happened?</p><p class="tense-intuition-example">${highlightCourseCues('I worked at a support company in 2020.')}</p><h2>${escapeHTML(module.theory.past.heading)}</h2><p>${escapeHTML(module.theory.past.body)}</p><ul><li>Finished past actions</li><li>A specific finished time</li><li>Finished periods</li></ul><ul>${module.theory.past.examples.map(example => `<li>${highlightCourseCues(example)}</li>`).join('')}</ul><p class="signal-note"><b>Frequent clues:</b> ${module.theory.past.signals.map(signal => `<span>${escapeHTML(signal)}</span>`).join(' ')}</p></section><section class="tense-theory-card perfect-card"><span class="tense-label">PRESENT PERFECT · EXPERIENCE UNTIL NOW</span><p class="tense-intuition">Am I talking about my <b>experience until now</b>?</p><p class="tense-intuition-example">${highlightCourseCues('I have worked in technical support.')}</p><h2>${escapeHTML(module.theory.perfect.heading)}</h2><p>${escapeHTML(module.theory.perfect.body)}</p><ul><li>Experiences up to now</li><li>A connection with now</li><li>Unfinished periods</li><li>Unspecified past time</li></ul><p class="formula-note">Form: have / has + past participle</p><ul>${module.theory.perfect.examples.map(example => `<li>${highlightCourseCues(example)}</li>`).join('')}</ul><p class="signal-note"><b>Frequent clues:</b> ${module.theory.perfect.signals.map(signal => `<span>${escapeHTML(signal)}</span>`).join(' ')}</p></section></div>${renderCourseDecisionGuide()}<p class="course-footnote">Signal words are clues, not absolute rules. For example, <i>for</i> can also appear with Past Simple when the period has ended.</p>`;
-    case 'visual': {
-      const mode = progress.visualMode || 'past';
-      const selected = mode === 'past' ? module.comparisons[0] : module.comparisons[1];
-      return `<p class="course-kicker">SEE THE DIFFERENCE</p><h2>How does the action relate to now?</h2><div class="course-visual-controls"><button class="course-visual-control past-control${mode === 'past' ? ' active' : ''}" data-mode="past">Past Simple</button><button class="course-visual-control perfect-control${mode === 'perfect' ? ' active' : ''}" data-mode="perfect">Present Perfect</button></div><div class="timeline-card ${mode === 'past' ? 'timeline-past' : 'timeline-perfect'}"><div class="timeline-labels"><span>PAST</span><span>NOW</span></div><div class="timeline-line"><span class="timeline-dot"></span></div><p>${mode === 'past' ? 'The event happened and ended at a finished time in the past.' : 'The experience or action has a connection with the present.'}</p></div><div class="course-compare"><div class="past-compare"><span>PAST SIMPLE</span><b>${escapeHTML(selected.past)}</b></div><div class="perfect-compare"><span>PRESENT PERFECT</span><b>${escapeHTML(selected.present)}</b></div></div><p class="course-copy">${escapeHTML(selected.note)}</p>`;
-    }
+    case 'theory': case 'visual': return renderCourseGuidedStage(module, step);
     case 'examples': return `<p class="course-kicker">EXAMPLES IN CONTEXT</p><h2>Notice what each sentence tells you.</h2><div class="course-example-grid">${module.examples.map((example, index) => `<article class="course-example-card ${example.label === 'PAST SIMPLE' ? 'past-card' : 'perfect-card'}"><span class="tense-label">${example.label}</span><h3>${highlightCourseCues(example.sentence)}</h3><button class="text-button course-example-reveal" data-target="course-example-${index}">Why this tense?</button><p class="course-example-explanation hidden" id="course-example-${index}">${escapeHTML(example.explanation)}</p></article>`).join('')}</div>`;
     case 'guided': return renderCourseActivities(module, progress, step, module.guidedExercises, 'guided');
     case 'practice': return renderCourseActivities(module, progress, step, module.practiceExercises, 'practice');
@@ -381,35 +367,85 @@ function highlightCourseCues(text) {
   return escapeHTML(text).replace(/\b(yesterday|last\s+(?:week|year|month)|in\s+20\d{2}|\w+\s+(?:days?|weeks?|months?|years?)\s+ago|ever|never|already|yet|just|since|for)\b/gi, '<mark class="course-cue">$1</mark>');
 }
 const appCourseNarrationScenes = [
-    { title: 'Introduction', kicker: 'SCENE 01 · WELCOME', kind: 'opening', body: `<div class="lesson-title-card"><span>INTENSIVE COURSE · MODULE 1</span><h3>PAST SIMPLE <i>vs</i><br>PRESENT PERFECT</h3><p>Meaning first. Grammar follows.</p></div>`, segments: [{ lang: 'es', text: 'En esta clase vamos a aprender la diferencia entre Past Simple y Present Perfect. La clave no es solamente memorizar una fórmula. Vamos a aprender a decidir cuál tiempo usar según el significado.' }, { lang: 'en', text: 'Past Simple versus Present Perfect.' }] },
-    { title: 'The key question', kicker: 'SCENE 02 · WHERE IS THE FOCUS?', kind: 'opening', body: `<p class="interactive-focus-question">Where is the focus?</p><div class="lesson-focus-options"><b data-lesson-target="focus-when">WHEN? → Past Simple</b><b data-lesson-target="focus-experience">EXPERIENCE / NOW? → Present Perfect</b></div>`, segments: [{ lang: 'es', text: 'La primera pregunta que debemos hacernos es: ¿dónde está el foco? ¿Estoy hablando de un momento pasado terminado o estoy hablando de una experiencia conectada con el presente?', target: 'focus-when focus-experience' }, { lang: 'en', text: 'When? Past Simple. Experience or now? Present Perfect.', target: 'focus-when focus-experience' }] },
-    { title: 'Past Simple', kicker: 'SCENE 03 · A FINISHED TIME', kind: 'past', continueAfterNarration: true, body: `${renderLessonTimeline('past', '2020', 'past-timeline')}<h3 class="narration-example" data-lesson-target="past-example-2020">${highlightCourseCues('I worked at a support company in 2020.')}</h3><p data-lesson-target="past-explanation"><b>The time is finished and specific.</b><br>El momento está terminado y es específico.</p>`, segments: [{ lang: 'es', text: 'Usamos Past Simple cuando presentamos una acción como terminada y ubicada en un momento o período pasado que ya terminó.', target: 'past-timeline' }, { lang: 'en', text: 'I worked at a support company in 2020.', target: 'past-example-2020' }, { lang: 'es', text: 'La expresión in 2020 nos indica un momento específico y terminado.', target: 'past-explanation' }] },
-    { title: 'Past Simple examples', kicker: 'SCENE 04 · TWO MORE EXAMPLES', kind: 'past', body: `<div class="lesson-example-stack"><h3 class="narration-example" data-lesson-target="past-example-2017">${highlightCourseCues('I moved to another city in 2017.')}</h3><h3 class="narration-example" data-lesson-target="past-example-five-months">${highlightCourseCues('I worked there for five months.')}</h3></div><div class="lesson-example-notes"><span>2017 · a finished point</span><span>five months · a finished period</span></div>`, segments: [{ lang: 'es', text: 'Otros ejemplos son:' }, { lang: 'en', text: 'I moved to another city in 2017.', target: 'past-example-2017' }, { lang: 'en', text: 'I worked there for five months.', target: 'past-example-five-months' }, { lang: 'es', text: 'En ambas oraciones hablamos de períodos que ya terminaron.' , target: 'past-example-2017 past-example-five-months' }] },
-    { title: 'Present Perfect', kicker: 'SCENE 05 · EXPERIENCE UNTIL NOW', kind: 'perfect', continueAfterNarration: true, body: `${renderLessonTimeline('experience', 'EXPERIENCE', 'experience-timeline')}<div class="lesson-example-stack"><h3 class="narration-example" data-lesson-target="perfect-support">${highlightCourseCues('I have worked in technical support.')}</h3><h3 class="narration-example" data-lesson-target="perfect-customers">${highlightCourseCues('I have worked with customers.')}</h3></div><p data-lesson-target="perfect-explanation">Experience accumulated up to now · No especificamos cuándo.</p>`, segments: [{ lang: 'es', text: 'Usamos Present Perfect cuando hablamos de una experiencia hasta ahora o de una situación que tiene una conexión con el presente.', target: 'experience-timeline' }, { lang: 'en', text: 'I have worked in technical support.', target: 'perfect-support' }, { lang: 'en', text: 'I have worked with customers.', target: 'perfect-customers' }, { lang: 'es', text: 'No estamos diciendo exactamente cuándo ocurrió. Estamos hablando de experiencia acumulada hasta ahora.', target: 'perfect-explanation' }] },
-    { title: 'Present Perfect signals', kicker: 'SCENE 06 · EXPERIENCE AND CLUES', kind: 'perfect', body: `<div class="lesson-signals"><article class="lesson-perfect" data-lesson-target="perfect-signal-list"><b>PRESENT PERFECT</b><div class="signal-note">${['ever','never','already','yet','just','since','for'].map(word => `<span>${escapeHTML(word)}</span>`).join('')}</div></article></div><h3 class="narration-example" data-lesson-target="perfect-never">${highlightCourseCues('I have never worked remotely before.')}</h3>`, segments: [{ lang: 'es', text: 'Algunas palabras aparecen frecuentemente con Present Perfect, como ever, never, already, yet, just, since y for.', target: 'perfect-signal-list' }, { lang: 'en', text: 'I have never worked remotely before.', target: 'perfect-never' }, { lang: 'es', text: 'Estas palabras son señales frecuentes de experiencias hasta ahora, pero siempre tenemos que mirar el contexto.', target: 'perfect-signal-list' }] },
-    { title: 'Direct comparison', kicker: 'SCENE 07 · THE KEY DIFFERENCE', kind: 'compare', continueAfterNarration: true, body: `<div class="lesson-comparison"><article class="lesson-past" data-lesson-target="compare-past"><span>PAST SIMPLE</span><h3 class="narration-example">${highlightCourseCues('I worked there in 2020.')}</h3><b>Specific finished time</b><div class="lesson-mini-timeline"><i></i></div></article><article class="lesson-perfect" data-lesson-target="compare-perfect"><span>PRESENT PERFECT</span><h3 class="narration-example">${highlightCourseCues('I have worked in technical support.')}</h3><b>Experience until now</b><div class="lesson-mini-timeline"><i></i></div></article></div><p data-lesson-target="compare-explanation">The meaning determines the tense.</p>`, segments: [{ lang: 'en', text: 'I worked there in 2020.', target: 'compare-past' }, { lang: 'en', text: 'I have worked in technical support.', target: 'compare-perfect' }, { lang: 'es', text: 'La diferencia principal no es simplemente la fórmula. En la primera oración estamos ubicando el hecho en un momento pasado terminado. En la segunda hablamos de una experiencia que tenemos hasta ahora.', target: 'compare-explanation' }] },
-    { title: 'How do I choose?', kicker: 'SCENE 08 · TRY THE DECISION', kind: 'decision', continueAfterNarration: true, body: `<div class="lesson-decision"><div><b>1. Do I mention a specific finished time?</b><div class="lesson-choice-row"><button class="button button-secondary lesson-choice" data-choice="past">Yes</button><button class="button button-secondary lesson-choice" data-choice="continue">No</button></div><p class="lesson-choice-result" id="lesson-choice-result" aria-live="polite">Choose an answer to see what to consider.</p></div><div><b>2. Am I talking about experience or something connected to now?</b><p>If yes, Present Perfect may fit: <strong>I have worked in technical support.</strong></p></div></div><p class="course-footnote">These questions are useful guides, not automatic rules. Context matters.</p>`, segments: [{ lang: 'es', text: 'Primero preguntate: ¿estoy mencionando un momento específico y terminado? Si la respuesta es sí, normalmente usamos Past Simple. Si no, preguntate si estoy hablando de una experiencia o de algo conectado con el presente. En ese caso, Present Perfect puede ser la opción adecuada.' }] },
-    { title: 'Important mistake', kicker: 'SCENE 09 · SPECIFIC FINISHED TIME', kind: 'correction', continueAfterNarration: true, body: `<div class="lesson-correction"><p class="lesson-wrong narration-example" data-lesson-target="wrong-example">✕ &nbsp; I have worked there in 2020.</p><p data-lesson-target="mistake-explanation"><b>“in 2020” is a specific finished time.</b></p><p class="lesson-right narration-example" data-lesson-target="correct-example">✓ &nbsp; I worked there in 2020.</p><p data-lesson-target="perfect-no-time">Without a specific finished time, this can describe experience:</p><p class="lesson-right narration-example" data-lesson-target="perfect-example">✓ &nbsp; I have worked there.</p><div class="lesson-ending" data-lesson-target="lesson-ending"><b>REMEMBER</b><span>Specific finished time → Past Simple</span><span>Experience / connection with now → Present Perfect</span></div></div>`, segments: [{ lang: 'es', text: 'Esta oración presenta un problema porque in 2020 es un momento específico y terminado.', target: 'mistake-explanation' }, { lang: 'en', text: 'I worked there in 2020.', target: 'correct-example' }, { lang: 'es', text: 'Por eso usamos Past Simple.', target: 'correct-example' }, { lang: 'en', text: 'I have worked there.', target: 'perfect-example' }, { lang: 'es', text: 'Aquí no especificamos cuándo. Estamos hablando de la experiencia.', target: 'perfect-no-time' }, { lang: 'es', text: 'Recordá: si mencionamos un momento específico y terminado, usamos Past Simple. Si hablamos de una experiencia o una conexión con el presente, usamos Present Perfect.', target: 'lesson-ending' }] }
+  { title: 'Introduction', kicker: 'WELCOME', kind: 'opening', body: '<p>Past Simple vs Present Perfect</p>' },
+  { title: 'Past Simple · meaning', kicker: 'A FINISHED PAST PERIOD', kind: 'past', body: '<p>Past Simple presents an action inside a finished past time.</p>' },
+  { title: 'Past Simple · examples', kicker: 'A FINISHED TIME OR PERIOD', kind: 'past', body: '<p>I moved to another city in 2017. · I worked there for five months.</p>' },
+  { title: 'Present Perfect · meaning', kicker: 'EXPERIENCE UNTIL NOW', kind: 'perfect', body: '<p>Present Perfect connects experience or a continuing situation with now.</p>' },
+  { title: 'Present Perfect · examples', kicker: 'EXPERIENCE AND CONTINUITY', kind: 'perfect', body: '<p>I have worked with customers. · I have lived here since 2017.</p>' },
+  { title: 'Direct comparison', kicker: 'THE MEANING CHANGES', kind: 'compare', body: '<p>I worked there in 2020. · I have worked in customer support.</p>' },
+  { title: 'How do I choose?', kicker: 'A QUESTION, NOT A SHORTCUT', kind: 'decision', body: '<p>Finished time? Past Simple. Experience until now? Present Perfect. Signal words are clues, not absolute rules.</p>' },
+  { title: 'Interview application', kicker: 'PUT IT INTO AN ANSWER', kind: 'perfect', body: '<p>I worked in technical support in 2020, and I have helped customers solve technical problems.</p>' },
+  { title: 'Mini practice', kicker: 'CHOOSE THE MEANING', kind: 'decision', body: '<p>I ___ with international customers last year.</p>' }
 ];
 const watchLearnSceneSteps = {
-  7: [
-    { type: 'check', title: 'Make the tense choice', segment: { language: 'es', text: 'Primero preguntate si estás mencionando un momento específico y terminado. Si es así, elegí Past Simple. Si no, preguntate si hablás de una experiencia conectada con el presente.', pauseAfter: 1200 }, requiresContinue: true, visual: '<div class="lesson-decision"><div><b>1. Do I mention a specific finished time?</b><div class="lesson-choice-row"><button class="button button-secondary lesson-choice" data-choice="past">Yes</button><button class="button button-secondary lesson-choice" data-choice="continue">No</button></div><p class="lesson-choice-result watch-decision-result" aria-live="polite">Choose an answer to see what to consider.</p></div><div><b>2. Am I talking about experience or something connected to now?</b><p>If yes, Present Perfect may fit: <strong>I have worked in technical support.</strong></p></div></div><p class="course-footnote">These questions guide your choice; context still matters.</p>' }
+  0: [
+    { type: 'explanation', title: 'What this class will help you do', segment: { language: 'es', text: 'En esta clase vas a elegir entre Past Simple y Present Perfect según el significado: un período pasado terminado o una experiencia conectada con ahora.' }, visual: '<div class="lesson-title-card"><span>INTENSIVE COURSE · MODULE 1</span><h3>PAST SIMPLE <i>vs</i><br>PRESENT PERFECT</h3><p>Meaning first. Grammar follows.</p></div>' }
   ],
   1: [
-    { type: 'explanation', title: 'The focus comes first', segment: { language: 'es', text: 'La primera pregunta que debemos hacernos es: ¿dónde está el foco? ¿Estoy hablando de un momento pasado terminado o de una experiencia conectada con el presente?', pauseAfter: 1100 }, requiresContinue: true, visual: '<p class="watch-learn-explanation">La primera pregunta que debemos hacernos es: ¿dónde está el foco? ¿Estoy hablando de un momento pasado terminado o de una experiencia conectada con el presente?</p>' },
-    { type: 'concept', title: 'THE KEY QUESTION', segment: { language: 'en', text: 'Where is the focus?', pauseAfter: 1700 }, visual: '<p class="interactive-focus-question">Where is the focus?</p><div class="lesson-focus-options"><b>WHEN? <span>→ Past Simple</span></b><b>EXPERIENCE / NOW? <span>→ Present Perfect</span></b></div>', requiresContinue: true },
-    { type: 'example', title: 'PAST SIMPLE · FINISHED TIME', segment: { language: 'en', text: 'I worked there in 2020.', pauseAfter: 1500 }, visual: '<article class="watch-example-card lesson-past"><span>PAST SIMPLE</span><h3>I worked there in 2020.</h3><p>Un momento pasado específico y terminado.</p></article>' },
-    { type: 'explanation', title: 'Why Past Simple?', segment: { language: 'es', text: 'Usamos Past Simple porque in 2020 indica un momento específico que ya terminó.', pauseAfter: 1300 }, visual: '<div class="watch-concept-note lesson-past"><b>WHEN?</b><p>“in 2020” ubica el trabajo en un tiempo terminado.</p></div>' },
-    { type: 'example', title: 'PRESENT PERFECT · EXPERIENCE UNTIL NOW', segment: { language: 'en', text: 'I have worked there for three years.', pauseAfter: 1500 }, visual: '<article class="watch-example-card lesson-perfect"><span>PRESENT PERFECT</span><h3>I have worked there for three years.</h3><p>Una experiencia que continúa hasta ahora.</p></article>' },
-    { type: 'explanation', title: 'Why Present Perfect?', segment: { language: 'es', text: 'Usamos Present Perfect porque for three years conecta una duración que llega hasta el presente.', pauseAfter: 1300 }, visual: '<div class="watch-concept-note lesson-perfect"><b>EXPERIENCE / NOW?</b><p>La duración empezó antes y sigue conectada con el presente.</p></div>' },
-    { type: 'comparison', title: 'SAME TOPIC · DIFFERENT FOCUS', segment: { language: 'es', text: 'Past Simple enfoca un momento pasado terminado. Present Perfect enfoca una experiencia conectada con ahora.', pauseAfter: 1600 }, requiresContinue: true, visual: '<div class="watch-comparison"><article class="lesson-past"><span>PAST SIMPLE</span><b>Finished past time · WHEN?</b><h3>I worked there in 2020.</h3></article><i>versus</i><article class="lesson-perfect"><span>PRESENT PERFECT</span><b>Experience / connection with now</b><h3>I have worked there for three years.</h3></article></div>' },
-    { type: 'check', title: 'MINI CHECK', segment: null, requiresInteraction: true, visual: '<div class="watch-check"><p>I ___ there in 2020.</p><div class="watch-check-options"><button class="button button-secondary" data-watch-answer="worked">worked</button><button class="button button-secondary" data-watch-answer="have worked">have worked</button></div><p id="watch-check-feedback" class="watch-check-feedback" aria-live="polite">Choose the form that matches the finished time.</p></div>' }
+    { type: 'explanation', title: 'PAST SIMPLE · WHEN?', segment: { language: 'en', text: 'Ask yourself: am I talking about when an action happened? Past Simple presents the action inside a finished past time.' }, visual: '<div class="watch-concept-note lesson-past"><b>PAST SIMPLE · WHEN?</b><p>Am I talking about when it happened?</p><small>An action presented in a finished past period.</small></div>' },
+    { type: 'example', title: 'A FINISHED TIME', segment: { language: 'en', text: 'I worked at a support company in 2020.' }, visual: '<article class="watch-example-card lesson-past"><span>PAST SIMPLE</span><h3>I worked at a support company in 2020.</h3><p>“In 2020” names a finished time.</p></article>' },
+    { type: 'concept', title: 'THE TIME IS OVER', segment: { language: 'en', text: 'The year 2020 is before now and has ended. That finished timeline is why this sentence uses Past Simple.' }, visual: `<div class="watch-concept-note lesson-past"><b>FINISHED TIME</b>${renderLessonTimeline('past', '2020')}<p>2020 ended. The action is located before now.</p></div>` }
+  ],
+  2: [
+    { type: 'example', title: 'A FINISHED POINT', segment: { language: 'en', text: 'I moved to another city in 2017.' }, visual: '<article class="watch-example-card lesson-past"><span>PAST SIMPLE · FINISHED POINT</span><h3>I moved to another city in 2017.</h3></article>' },
+    { type: 'example', title: 'A FINISHED PERIOD', segment: { language: 'en', text: 'I worked there for five months.' }, visual: '<article class="watch-example-card lesson-past"><span>PAST SIMPLE · FINISHED PERIOD</span><h3>I worked there for five months.</h3><p>Here, the five-month job has ended.</p></article>' }
+  ],
+  3: [
+    { type: 'explanation', title: 'PRESENT PERFECT · EXPERIENCE UNTIL NOW', segment: { language: 'es', text: 'Present Perfect presenta una experiencia acumulada hasta ahora o una situación conectada con el presente, sin ubicarla en una fecha pasada terminada.' }, visual: '<div class="watch-concept-note lesson-perfect"><b>PRESENT PERFECT · EXPERIENCE → NOW</b><p>Past experience that matters in the present.</p></div>' },
+    { type: 'example', title: 'RELEVANT EXPERIENCE', segment: { language: 'en', text: 'I have worked in technical support.' }, visual: '<article class="watch-example-card lesson-perfect"><span>PRESENT PERFECT</span><h3>I have worked in technical support.</h3><p>No specific finished date is given.</p></article>' },
+    { type: 'concept', title: 'CONNECTED TO NOW', segment: { language: 'es', text: 'La línea representa una experiencia que llega hasta el presente. No decimos cuándo ocurrió cada etapa.' }, visual: `<div class="watch-concept-note lesson-perfect"><b>EXPERIENCE UNTIL NOW</b>${renderLessonTimeline('experience', 'UNTIL NOW')}<p>The experience is relevant now; no finished date is named.</p></div>` }
+  ],
+  4: [
+    { type: 'example', title: 'CUSTOMER EXPERIENCE', segment: { language: 'en', text: 'I have worked with customers.' }, visual: '<article class="watch-example-card lesson-perfect"><span>PRESENT PERFECT · EXPERIENCE</span><h3>I have worked with customers.</h3></article>' },
+    { type: 'example', title: 'A SITUATION THAT CONTINUES', segment: { language: 'en', text: 'I have lived in this city since 2017.' }, visual: '<article class="watch-example-card lesson-perfect"><span>PRESENT PERFECT · STILL TRUE NOW</span><h3>I have lived in this city since 2017.</h3><p>I still live here now.</p></article>' }
+  ],
+  5: [
+    { type: 'comparison', title: 'SAME TOPIC · DIFFERENT FOCUS', segment: { language: 'es', text: 'La primera oración ubica el trabajo en 2020, un momento terminado. La segunda habla de experiencia en customer support hasta ahora y no especifica cuándo.' }, visual: '<div class="watch-comparison"><article class="lesson-past"><span>PAST SIMPLE · WHEN?</span><h3>I worked there in 2020.</h3><b>A specific finished time</b></article><i>versus</i><article class="lesson-perfect"><span>PRESENT PERFECT · EXPERIENCE</span><h3>I have worked in customer support.</h3><b>Experience up to now</b></article></div>' }
+  ],
+  6: [
+    { type: 'concept', title: 'ASK WHAT YOU MEAN', segment: { language: 'en', text: 'If you mention a finished past time, choose Past Simple. If you talk about experience up to now, Present Perfect may fit.' }, visual: '<div class="watch-comparison"><article class="lesson-past"><span>WHEN DID IT HAPPEN?</span><h3>Finished time → Past Simple</h3></article><i>or</i><article class="lesson-perfect"><span>WHAT IS MY EXPERIENCE?</span><h3>Until now → Present Perfect</h3></article></div>' },
+    { type: 'explanation', title: 'SIGNAL WORDS ARE CLUES', segment: { language: 'es', text: 'Ever, never, since y for suelen aparecer con Present Perfect, pero no son reglas automáticas. For también puede describir un período ya terminado. El contexto y el significado deciden.' }, visual: '<div class="watch-concept-note"><b>CLUES, NOT ABSOLUTE RULES</b><div class="signal-note"><span>ever</span><span>never</span><span>since</span><span>for</span></div><p>Check whether the period is finished or still connected to now.</p></div>' }
+  ],
+  7: [
+    { type: 'example', title: 'A NATURAL INTERVIEW ANSWER', segment: { language: 'en', text: 'I worked in technical support in 2020, and I have helped customers solve technical problems.' }, visual: '<article class="watch-example-card lesson-perfect"><span>INTERVIEW APPLICATION</span><h3>I worked in technical support in 2020, and I have helped customers solve technical problems.</h3><p>Finished job period · relevant experience with customers</p></article>' }
+  ],
+  8: [
+    { type: 'check', title: 'Choose the tense', segment: { language: 'es', text: 'El año pasado es un período terminado. Elegí la forma verbal que presenta la acción como pasada y terminada.' }, requiresInteraction: true, visual: '<div class="watch-check"><p>I ___ with international customers last year.</p><div class="watch-check-options"><button class="button button-secondary" data-watch-answer="worked">worked</button><button class="button button-secondary" data-watch-answer="have worked">have worked</button></div><p id="watch-check-feedback" class="watch-check-feedback" aria-live="polite">“Last year” is a finished time. Choose the matching form.</p></div>' }
   ]
-};
-function getWatchLearnSteps(sceneIndex = courseLessonScene, scene = appCourseNarrationScenes[sceneIndex]) {
+};function getWatchLearnSteps(sceneIndex = courseLessonScene, scene = appCourseNarrationScenes[sceneIndex]) {
   if (watchLearnSceneSteps[sceneIndex]) return watchLearnSceneSteps[sceneIndex];
   const segments = currentCourseNarrationSegments(scene);
   return segments.map((segment, index) => ({ type: segment.type || (segment.language === 'en' ? 'example' : 'explanation'), title: segment.type === 'example' || segment.language === 'en' ? 'EXAMPLE' : 'EXPLANATION', segment, target: segment.target, requiresContinue: Boolean(scene?.continueAfterNarration && index === segments.length - 1) }));
+}
+function getCourseGuidedSlides(module, step) {
+  if (step.type === 'theory') return [
+    { title: 'PAST SIMPLE · WHEN?', language: 'en', text: 'Use Past Simple to present an action as finished in a past period that has ended.', visual: '<article class="watch-concept-note lesson-past"><b>PAST SIMPLE · WHEN?</b><p>An action presented in a finished past period.</p></article>' },
+    { title: 'A SPECIFIC FINISHED TIME', language: 'en', text: 'I moved to another city in 2017. The year tells us when, and that year has ended.', visual: `<article class="watch-example-card lesson-past"><span>PAST SIMPLE</span><h3>${escapeHTML(module.theory.past.examples[1])}</h3><p>2017 is a specific, finished time.</p></article>` },
+    { title: 'PAST TIME CLUES', language: 'es', text: 'Yesterday, last year e in 2020 pueden indicar un tiempo terminado. Son pistas: el contexto sigue definiendo el significado.', visual: `<div class="watch-concept-note lesson-past"><b>PAST SIMPLE · COMMON CLUES</b><div class="signal-note">${module.theory.past.signals.slice(0, 5).map(word => `<span>${escapeHTML(word)}</span>`).join('')}</div><p>Clues help; context decides.</p></div>` },
+    { title: 'PRESENT PERFECT · EXPERIENCE UNTIL NOW', language: 'es', text: 'Usamos Present Perfect para hablar de experiencia acumulada hasta ahora, sin especificar un momento pasado terminado.', visual: '<div class="watch-concept-note lesson-perfect"><b>EXPERIENCE → NOW</b><p>A past experience that is relevant in the present.</p></div>' },
+    { title: 'BUILD THE FORM', language: 'en', text: 'Present Perfect uses have or has plus a past participle. In this example, have worked is the verb form.', visual: `<div class="watch-concept-note lesson-perfect"><b>HAVE / HAS + PAST PARTICIPLE</b><h3>${escapeHTML(module.theory.perfect.examples[0])}</h3><p>have + worked</p></div>` },
+    { title: 'SIGNAL WORDS ARE NOT RULES', language: 'es', text: 'Ever, never, since y for suelen aparecer con Present Perfect. Son pistas, no reglas absolutas; for también puede acompañar un período terminado.', visual: `<div class="watch-concept-note lesson-perfect"><b>COMMON PRESENT PERFECT CLUES</b><div class="signal-note">${module.theory.perfect.signals.map(word => `<span>${escapeHTML(word)}</span>`).join('')}</div><p>Choose by meaning, not by one word alone.</p></div>` }
+  ];
+  return [
+    { title: 'PAST SIMPLE · FINISHED TIME', language: 'en', text: 'The timeline ends before now. I worked there in 2020 names a specific finished period.', visual: `<div class="watch-concept-note lesson-past"><b>PAST SIMPLE · FINISHED TIME</b>${renderLessonTimeline('past', '2020')}<h3>I worked there in 2020.</h3></div>` },
+    { title: 'PRESENT PERFECT · EXPERIENCE UNTIL NOW', language: 'en', text: 'This timeline connects a past experience with now. I have worked in customer support does not name a finished date.', visual: `<div class="watch-concept-note lesson-perfect"><b>PRESENT PERFECT · EXPERIENCE UNTIL NOW</b>${renderLessonTimeline('experience', 'UNTIL NOW')}<h3>I have worked in customer support.</h3></div>` },
+    { title: 'ONE KEY DIFFERENCE', language: 'es', text: 'La primera oración responde cuándo y ubica el hecho en un tiempo terminado. La segunda habla de experiencia hasta ahora sin decir cuándo. El significado cambia, y por eso cambia el tiempo verbal.', visual: '<div class="watch-comparison"><article class="lesson-past"><span>WHEN? · PAST SIMPLE</span><h3>I worked there in 2020.</h3><b>Finished time</b></article><i>versus</i><article class="lesson-perfect"><span>EXPERIENCE? · PRESENT PERFECT</span><h3>I have worked in customer support.</h3><b>Connected to now</b></article></div>' }
+  ];
+}
+function renderCourseGuidedStage(module, step) {
+  const slides = getCourseGuidedSlides(module, step);
+  courseLessonStage = Math.max(0, Math.min(courseLessonStage, slides.length - 1));
+  const slide = slides[courseLessonStage];
+  const visual = `<p class="course-kicker">${escapeHTML(step.title.toUpperCase())} · ${courseLessonStage + 1} / ${slides.length}</p><h2>${escapeHTML(slide.title)}</h2><div class="watch-stage-content">${slide.visual}</div>`;
+  return `<section class="interactive-lesson course-guided-lesson" aria-label="${escapeHTML(step.title)}"><article class="interactive-scene scene-${slide.language === 'en' && slide.title.includes('PAST') ? 'past' : slide.title.includes('PRESENT') || slide.title.includes('SIGNAL') ? 'perfect' : 'compare'}">${visual}</article>${renderCourseNarrationPanel(slide)}${renderCourseAudioControls()}<div class="interactive-controls watch-navigation-controls"><button class="button button-secondary" id="lesson-previous">← Previous</button><button class="button button-primary" id="lesson-next">Next →</button></div></section>`;
+}
+function renderCourseNarrationPanel(slide) {
+  const subtitle = courseLessonSubtitle || 'Captions will appear here during narration.';
+  const language = courseLessonSubtitle ? courseLessonSubtitleLang : 'en';
+  return `<section class="lesson-subtitle-panel" aria-label="Narration and captions"><div><span class="lesson-audio-indicator" aria-hidden="true">🔊</span><b id="lesson-narration-status" aria-live="polite">${escapeHTML(courseNarrationStatus)}</b><label for="lesson-voice-speed">Speed</label><select id="lesson-voice-speed" aria-label="Narration speed"><option value="0.75"${courseVoiceRate === .75 ? ' selected' : ''}>0.75×</option><option value="1"${courseVoiceRate === 1 ? ' selected' : ''}>1×</option><option value="1.25"${courseVoiceRate === 1.25 ? ' selected' : ''}>1.25×</option><option value="1.5"${courseVoiceRate === 1.5 ? ' selected' : ''}>1.5×</option></select></div><p id="lesson-subtitle" class="lesson-subtitle" lang="${language}">${escapeHTML(subtitle)}</p></section>`;
+}
+function renderCourseAudioControls() {
+  return `<div class="interactive-controls watch-audio-controls"><div class="interactive-playback"><button class="button button-primary" id="lesson-play">▶ Play</button><button class="button button-secondary" id="lesson-pause">⏸ Pause</button><button class="button button-secondary" id="lesson-resume">▶ Resume</button><button class="button button-secondary" id="lesson-replay">↻ Replay</button><button class="button button-secondary" id="lesson-stop">■ Stop</button></div></div>`;
 }
 function renderCourseInteractiveLesson() {
   const scenes = appCourseNarrationScenes;
@@ -418,17 +454,12 @@ function renderCourseInteractiveLesson() {
   const steps = getWatchLearnSteps(courseLessonScene, scene);
   courseLessonStage = Math.max(0, Math.min(courseLessonStage, steps.length - 1));
   const stage = steps[courseLessonStage];
-  const subtitleMarkup = courseLessonSubtitle ? escapeHTML(courseLessonSubtitle) : 'Captions will appear here during narration.';
-  const voicePlaybackAvailable = isCourseSpeechAvailable() || Boolean(stage.segment?.audioSrc && typeof window.Audio === 'function');
-  const stateText = voicePlaybackAvailable ? courseNarrationStatus : (courseNarrationStatus === 'Ready' ? 'Voice narration is not available in this browser. You can continue visually.' : courseNarrationStatus);
   const visual = stage.type === 'check' ? renderWatchMiniCheck() : stage.visual || renderWatchLearnTarget(scene, stage.target) || `<p class="watch-stage-text">${escapeHTML(stage.segment?.text || '')}</p>`;
-  const stageLabel = `${String(stage.type || 'explanation').replace('-', ' ').toUpperCase()} · STEP ${courseLessonStage + 1} / ${steps.length}`;
-  const continueText = courseLessonStage === steps.length - 1 && courseLessonScene === scenes.length - 1 ? 'Finish lesson ✓' : courseLessonStage < steps.length - 1 ? 'Continue →' : 'Next scene →';
-  const savedWatchCheck = getCourseProgress().activityAnswers['watch-learn-scene-02-mini-check'];
-  const stageContinueVisible = courseLessonWaitingContinue || (stage.type === 'check' && Boolean(savedWatchCheck)) || (!voicePlaybackAvailable && !stage.requiresInteraction);
-  const showNextStage = courseLessonStage < steps.length - 1 && !stage.requiresContinue && !stage.requiresInteraction;
-  const listenButton = stage.segment?.language === 'en' ? `<button class="lesson-listen-again" id="lesson-listen-current">🔊 Listen Again</button>` : '';
-  return `<section class="interactive-lesson" aria-label="Interactive lesson player"><div class="interactive-player-heading"><div><p class="course-kicker">WATCH &amp; LEARN · GUIDED MINI CLASS</p><h2>Past Simple vs Present Perfect</h2></div><span class="interactive-scene-count">SCENE ${courseLessonScene + 1} / ${scenes.length}</span></div><div class="interactive-progress"><span style="width:${(courseLessonScene + 1) / scenes.length * 100}%"></span></div><div class="watch-stage-progress" aria-label="Scene step progress"><span>${courseLessonStage + 1} of ${steps.length}</span><div><i style="width:${(courseLessonStage + 1) / steps.length * 100}%"></i></div></div><article class="interactive-scene scene-${scene.kind}" aria-live="polite"><p class="course-kicker">${stageLabel}</p><h2>${stage.title || scene.title}</h2><div class="interactive-scene-body watch-stage-content">${visual}</div><details class="watch-full-scene"><summary>Review all material from this scene</summary>${scene.body}</details></article><section class="lesson-subtitle-panel" aria-label="Narration subtitles"><div><span class="lesson-audio-indicator" aria-hidden="true">🔊</span><b id="lesson-narration-status" aria-live="polite">${escapeHTML(stateText)}</b><label for="lesson-voice-speed">Speed</label><select id="lesson-voice-speed" aria-label="Narration speed"><option value="0.75"${courseVoiceRate === .75 ? ' selected' : ''}>0.75×</option><option value="1"${courseVoiceRate === 1 ? ' selected' : ''}>1×</option><option value="1.25"${courseVoiceRate === 1.25 ? ' selected' : ''}>1.25×</option><option value="1.5"${courseVoiceRate === 1.5 ? ' selected' : ''}>1.5×</option></select></div><p id="lesson-subtitle" class="lesson-subtitle" lang="${courseLessonSubtitleLang}" aria-live="polite">${subtitleMarkup}</p>${listenButton}</section><div class="interactive-controls watch-audio-controls"><div class="interactive-playback"><button class="button button-primary" id="lesson-play">▶ Play</button><button class="button button-secondary" id="lesson-pause">⏸ Pause</button><button class="button button-secondary" id="lesson-resume">▶ Resume</button><button class="button button-secondary" id="lesson-replay">🔄 Replay step</button><button class="button button-secondary" id="lesson-stop">■ Stop</button></div><div class="interactive-navigation"><button class="button button-secondary" id="lesson-restart">↺ Restart</button></div></div><div class="interactive-controls watch-navigation-controls"><div class="interactive-playback"><button class="button button-secondary" id="lesson-step-previous"${courseLessonStage === 0 ? ' disabled' : ''}>← Previous step</button><button class="button button-secondary${showNextStage ? '' : ' hidden'}" id="lesson-step-next">Next content →</button><button class="button button-primary${stageContinueVisible ? '' : ' hidden'}" id="lesson-continue">${continueText}</button></div><div class="interactive-navigation"><button class="button button-secondary" id="lesson-previous"${courseLessonScene === 0 ? ' disabled' : ''}>← Previous scene</button><button class="button button-secondary" id="lesson-next"${courseLessonScene === scenes.length - 1 ? ' disabled' : ''}>Next scene →</button></div></div><p class="interactive-hint">Cada etapa presenta una idea a la vez. El contenido original completo queda disponible para consultar debajo de la etapa.</p></section>`;
+  const stageLabel = `${String(stage.type || 'explanation').replace('-', ' ').toUpperCase()} · ${courseLessonStage + 1} / ${steps.length}`;
+  const savedWatchCheck = getCourseProgress().activityAnswers['watch-learn-scene-09-mini-check'];
+  const canAdvanceStage = !stage.requiresInteraction || Boolean(savedWatchCheck);
+  const partProgress = courseLessonStage + 1;
+  return `<section class="interactive-lesson" aria-label="Guided class"><div class="interactive-player-heading"><div><p class="course-kicker">WATCH &amp; LEARN · MODULE 1</p><h2>Past Simple vs Present Perfect</h2></div><span class="interactive-scene-count">PART ${courseLessonScene + 1} OF ${scenes.length}</span></div><div class="interactive-progress"><span style="width:${(courseLessonScene + 1) / scenes.length * 100}%"></span></div><div class="watch-stage-progress" aria-label="Lesson progress"><span>${partProgress} / ${steps.length}</span><div><i style="width:${partProgress / steps.length * 100}%"></i></div></div><article class="interactive-scene scene-${scene.kind}" aria-live="polite"><p class="course-kicker">${stageLabel}</p><h2>${stage.title || scene.title}</h2><div class="interactive-scene-body watch-stage-content">${visual}</div><details class="watch-full-scene"><summary>More explanation</summary>${scene.body}</details></article>${renderCourseNarrationPanel(stage.segment || { language: 'en' })}${renderCourseAudioControls()}<div class="interactive-controls watch-navigation-controls"><button class="button button-secondary" id="lesson-previous"${courseLessonScene === 0 && courseLessonStage === 0 ? '' : ''}>← Previous</button><button class="button button-primary" id="lesson-next"${canAdvanceStage ? '' : ' disabled'}>Next →</button></div><p class="interactive-hint">The narration starts with each new part. It never moves the lesson forward by itself.</p></section>`;
 }
 function renderWatchLearnTarget(scene, targets) {
   if (!targets) return '';
@@ -437,77 +468,69 @@ function renderWatchLearnTarget(scene, targets) {
   return targets.split(/\s+/).map(target => holder.querySelector(`[data-lesson-target~="${CSS.escape(target)}"]`)?.outerHTML || '').join('');
 }
 function renderWatchMiniCheck() {
-  const saved = getCourseProgress().activityAnswers['watch-learn-scene-02-mini-check'];
-  const feedback = saved ? (saved.isCorrect ? 'Correct. “In 2020” names a specific finished time, so use Past Simple.' : 'Not quite. “In 2020” names a specific finished time, so the correct form is “worked”.') : 'Choose the form that matches the finished time.';
-  return `<div class="watch-check"><p>I ___ there in 2020.</p><div class="watch-check-options"><button class="button button-secondary" data-watch-answer="worked"${saved ? ' disabled' : ''}>worked</button><button class="button button-secondary" data-watch-answer="have worked"${saved ? ' disabled' : ''}>have worked</button></div><p id="watch-check-feedback" class="watch-check-feedback${saved?.isCorrect ? ' is-correct' : saved ? ' is-incorrect' : ''}" aria-live="polite">${feedback}</p></div>`;
+  const saved = getCourseProgress().activityAnswers['watch-learn-scene-09-mini-check'];
+  const feedback = saved ? (saved.isCorrect ? 'Correct. “Last year” is a finished time, so use Past Simple.' : 'Not quite. “Last year” is finished; the correct form is “worked”.') : 'Choose the form that matches the finished time.';
+  return `<div class="watch-check"><p>I ___ with international customers last year.</p><div class="watch-check-options"><button class="button button-secondary" data-watch-answer="worked"${saved ? ' disabled' : ''}>worked</button><button class="button button-secondary" data-watch-answer="have worked"${saved ? ' disabled' : ''}>have worked</button></div><p id="watch-check-feedback" class="watch-check-feedback${saved?.isCorrect ? ' is-correct' : saved ? ' is-incorrect' : ''}" aria-live="polite">${feedback}</p></div>`;
 }
 function renderLessonTimeline(type, label, target = '') {
   return `<div class="lesson-timeline ${type === 'experience' ? 'lesson-timeline-experience' : 'lesson-timeline-past'}"${target ? ` data-lesson-target="${target}"` : ''}><div><span>PAST</span><span>NOW</span></div><div class="lesson-timeline-line"><i></i></div><b>${escapeHTML(label)}</b></div>`;
 }
 function bindCourseInteractiveLesson() {
-  const showScene = (index, keepAutoplay = false) => {
-    stopCourseNarration(false);
-    courseLessonScene = Math.max(0, Math.min(index, 8));
-    courseLessonStage = 0;
-    courseLessonSubtitle = '';
-    courseLessonSubtitleLang = 'es';
-    courseLessonAutoplay = keepAutoplay;
-    courseLessonWaitingContinue = false;
-    renderCourse();
-    if (keepAutoplay) playCourseStage(true);
-  };
-  $('#lesson-play').addEventListener('click', () => { courseLessonWaitingContinue = false; playCourseStage(true); });
-  $('#lesson-restart').addEventListener('click', () => { stopCourseNarration(true); courseLessonScene = 0; courseLessonStage = 0; courseLessonAutoplay = false; courseLessonSubtitle = ''; renderCourse(); });
-  $('#lesson-pause').addEventListener('click', pauseCourseVoice);
-  $('#lesson-resume').addEventListener('click', resumeCourseVoice);
-  $('#lesson-replay').addEventListener('click', () => playCourseStage(false));
-  $('#lesson-stop').addEventListener('click', () => {
-    stopCourseNarration(false);
-    courseLessonAutoplay = false;
-    if (getWatchLearnSteps()[courseLessonStage]?.requiresContinue) {
-      courseLessonWaitingContinue = true;
-      setCourseNarrationStatus('Narration stopped · continue visually when ready.');
-      $('#lesson-continue')?.classList.remove('hidden');
-    }
-  });
-  $('#lesson-previous').addEventListener('click', () => showScene(courseLessonScene - 1, courseLessonAutoplay));
-  $('#lesson-next').addEventListener('click', () => showScene(courseLessonScene + 1, courseLessonAutoplay));
-  $('#lesson-step-previous').addEventListener('click', () => showStage(courseLessonStage - 1));
-  $('#lesson-step-next').addEventListener('click', () => showStage(courseLessonStage + 1));
-  $('#lesson-continue')?.addEventListener('click', () => {
-    courseLessonWaitingContinue = false;
-    const steps = getWatchLearnSteps();
-    if (courseLessonStage < steps.length - 1) showStage(courseLessonStage + 1, courseLessonAutoplay);
-    else if (courseLessonScene === 8) { courseLessonAutoplay = false; setCourseNarrationStatus('Class complete. Replay any scene or restart the lesson.'); }
-    else showScene(courseLessonScene + 1, courseLessonAutoplay);
-  });
+  bindCourseAudioControls();
+  $('#lesson-next').addEventListener('click', () => moveGuidedCourse(1));
+  $('#lesson-previous').addEventListener('click', () => moveGuidedCourse(-1));
   $('#lesson-voice-speed').addEventListener('change', event => { courseVoiceRate = Number(event.target.value) || 1; });
-  $$('.lesson-listen-again').forEach(button => button.addEventListener('click', () => playSingleEnglishSegment(Number(button.dataset.listenSegment))));
-  $$('.lesson-choice').forEach(button => button.addEventListener('click', () => {
-    const result = $('.watch-decision-result') || $('#lesson-choice-result');
-    result.innerHTML = button.dataset.choice === 'past' ? `<strong>PAST SIMPLE</strong> — ${highlightCourseCues('I worked there in 2020.')}` : button.dataset.choice === 'continue' ? 'Now ask Question 2: are you talking about experience or a connection with now? If so, Present Perfect may fit.' : '';
-  }));
-  $('#lesson-listen-current')?.addEventListener('click', () => playSingleEnglishSegment());
+  playCourseStage();
   $$('[data-watch-answer]').forEach(button => button.addEventListener('click', () => {
     const progress = getCourseProgress();
-    const key = 'watch-learn-scene-02-mini-check';
+    const key = 'watch-learn-scene-09-mini-check';
     if (progress.activityAnswers[key]) return;
     const isCorrect = button.dataset.watchAnswer === 'worked';
-    progress.activityAnswers[key] = { response: button.dataset.watchAnswer, isCorrect, explanation: '“In 2020” marks a specific finished time, so use Past Simple: worked.' };
+    progress.activityAnswers[key] = { response: button.dataset.watchAnswer, isCorrect, explanation: '“Last year” marks a specific finished time, so use Past Simple: worked.' };
     recordCourseExercise('Present Perfect vs Past Simple', isCorrect, progress);
-    courseLessonWaitingContinue = true;
     renderCourse();
   }));
 }
-function showStage(index, keepAutoplay = false) {
-  const steps = getWatchLearnSteps();
-  stopCourseNarration(false);
-  courseLessonStage = Math.max(0, Math.min(index, steps.length - 1));
-  courseLessonAutoplay = keepAutoplay;
-  courseLessonWaitingContinue = false;
+function bindCourseAudioControls() {
+  $('#lesson-play').addEventListener('click', () => playCourseStage());
+  $('#lesson-pause').addEventListener('click', pauseCourseVoice);
+  $('#lesson-resume').addEventListener('click', resumeCourseVoice);
+  $('#lesson-replay').addEventListener('click', () => playCourseStage());
+  $('#lesson-stop').addEventListener('click', () => stopCourseNarration(false));
+}
+function bindCourseGuidedLesson() {
+  bindCourseAudioControls();
+  $('#lesson-next').addEventListener('click', () => moveGuidedCourse(1));
+  $('#lesson-previous').addEventListener('click', () => moveGuidedCourse(-1));
+  $('#lesson-voice-speed').addEventListener('change', event => { courseVoiceRate = Number(event.target.value) || 1; });
+  playCourseStage();
+}
+function moveGuidedCourse(direction) {
+  const module = getCourseModule();
+  const progress = getCourseProgress(module);
+  const current = module.lessons[progress.currentStep];
+  const total = current.type === 'interactive' ? getWatchLearnSteps(courseLessonScene).length : getCourseGuidedSlides(module, current).length;
+  const currentStage = current.type === 'interactive' ? getWatchLearnSteps(courseLessonScene)[courseLessonStage] : null;
+  if (direction > 0 && currentStage?.requiresInteraction && !progress.activityAnswers['watch-learn-scene-09-mini-check']) return;
+  stopCourseNarration(true);
+  if (direction > 0) {
+    if (courseLessonStage < total - 1) courseLessonStage += 1;
+    else if (current.type === 'interactive' && courseLessonScene < appCourseNarrationScenes.length - 1) { courseLessonScene += 1; courseLessonStage = 0; }
+    else { advanceCourse(module, progress, current); return; }
+  } else if (courseLessonStage > 0) courseLessonStage -= 1;
+  else if (current.type === 'interactive' && courseLessonScene > 0) {
+    courseLessonScene -= 1;
+    courseLessonStage = getWatchLearnSteps().length - 1;
+  } else {
+    progress.currentStep = Math.max(0, progress.currentStep - 1);
+    if (module.lessons[progress.currentStep]?.type === 'interactive') {
+      courseLessonScene = appCourseNarrationScenes.length - 1;
+      courseLessonStage = getWatchLearnSteps(courseLessonScene).length - 1;
+    } else courseLessonStage = 0;
+    saveStats();
+  }
   courseLessonSubtitle = '';
   renderCourse();
-  if (keepAutoplay) playCourseStage(true);
 }
 function isCourseSpeechAvailable() { return !!(window.speechSynthesis?.speak && window.SpeechSynthesisUtterance); }
 function loadCourseSpeechVoices() {
@@ -588,107 +611,46 @@ function setCourseNarrationCaption(segment) {
   clearCourseNarrationHighlights();
   if (segment.target) segment.target.split(/\s+/).forEach(key => $$('.interactive-scene [data-lesson-target]').filter(el => el.dataset.lessonTarget?.split(/\s+/).includes(key)).forEach(el => el.classList.add('narration-highlight')));
 }
-function playCourseScene(autoAdvance, startAt = 0) {
-  courseLessonStage = Math.max(0, startAt);
-  playCourseStage(autoAdvance);
-}
-function playCourseStage(autoAdvance = false) {
-  clearTimeout(courseLessonTimer); courseLessonTimer = null;
+function playCourseStage() {
+  const module = getCourseModule();
+  const lesson = module?.lessons[getCourseProgress(module).currentStep];
+  const step = lesson?.type === 'interactive' ? getWatchLearnSteps()[courseLessonStage] : getCourseGuidedSlides(module, lesson)[courseLessonStage];
   stopNarrationEngine();
-  courseNarrationToken++;
-  courseNarrationMode = autoAdvance ? 'auto' : 'stage';
-  courseLessonAutoplay = autoAdvance;
-  courseLessonPlaying = true;
-  courseLessonPaused = false;
-  courseLessonWaitingContinue = false;
-  courseNarrationSegment = courseLessonStage;
-  playCourseSegment(courseNarrationSegment, courseNarrationToken);
-}
-function playCourseSegment(index, token) {
-  if (token !== courseNarrationToken) return;
-  const steps = getWatchLearnSteps();
-  const step = steps[index];
-  if (!step) return finishCourseScene(token);
-  courseNarrationSegment = index;
-  if (!step.segment) {
-    courseLessonPlaying = false;
-    setCourseNarrationStatus(step.requiresInteraction ? 'Complete the mini check to continue.' : 'Visual step · use Continue when ready.');
+  const token = ++courseNarrationToken;
+  const segment = step?.segment || (step?.text ? { language: step.language || 'en', text: step.text } : null);
+  if (!segment) {
+    setCourseNarrationStatus('This is a visual practice step. Choose an answer, then continue.');
     return;
   }
-  setCourseNarrationCaption(step.segment);
-  const next = steps[index + 1];
-  setCourseNarrationStatus(`${step.segment.language === 'en' ? 'English' : 'Spanish'} narration`);
-  playNarrationSegment(step.segment, { rate: courseVoiceRate, onStatus: status => setCourseNarrationStatus(status), onEnd: () => {
-    if (token !== courseNarrationToken) return;
-    if (step.requiresContinue) { courseLessonPlaying = false; courseLessonWaitingContinue = true; setCourseNarrationStatus('Step complete · continue when ready.'); $('#lesson-continue')?.classList.remove('hidden'); }
-    else if (next && next.type !== 'check') { courseLessonTimer = setTimeout(() => { courseLessonStage = index + 1; renderCourse(); if (courseLessonAutoplay) playCourseSegment(index + 1, token); else { courseLessonWaitingContinue = true; $('#lesson-continue')?.classList.remove('hidden'); } }, Math.max(step.segment.pauseAfter ?? LESSON_TIMING.segmentPause, next.segment?.pauseBefore || 0)); }
-    else finishCourseScene(token);
-  }, onError: () => { courseLessonPlaying = false; courseNarrationMode = null; courseLessonAutoplay = false; courseLessonWaitingContinue = true; setCourseNarrationStatus('Audio unavailable · continue through the visual lesson.'); $('#lesson-continue')?.classList.remove('hidden'); } });
-}
-function finishCourseScene(token) {
-  if (token !== courseNarrationToken) return;
-  courseLessonPlaying = false;
-  const steps = getWatchLearnSteps();
-  if (courseLessonStage < steps.length - 1) {
-    courseLessonWaitingContinue = true;
-    setCourseNarrationStatus('Step complete · continue when ready.');
-    $('#lesson-continue')?.classList.remove('hidden');
-    return;
-  }
-  const scene = appCourseNarrationScenes[courseLessonScene];
-  if (scene?.continueAfterNarration) {
-    courseLessonWaitingContinue = true;
-    setCourseNarrationStatus('Narration complete · continue when ready.');
-    const button = $('#lesson-continue'); button?.classList.remove('hidden');
-  } else if (courseLessonAutoplay && courseLessonScene < 8) {
-    courseLessonTimer = setTimeout(() => advanceCourseNarrationScene(), LESSON_TIMING.scenePause);
-  } else setCourseNarrationStatus(courseLessonScene === 8 ? 'Class complete.' : 'Scene narration complete. Press Next when ready.');
-}
-function advanceCourseNarrationScene() {
-  if (courseLessonScene >= 8) return;
-  courseLessonScene++;
-  courseLessonStage = 0;
-  courseLessonSubtitle = '';
-  renderCourse();
-  if (courseLessonAutoplay) playCourseStage(true);
+  setCourseNarrationCaption(segment);
+  setCourseNarrationStatus(`${segment.language === 'en' ? 'English' : 'Spanish'} narration · current content only`);
+  playNarrationSegment(segment, {
+    rate: courseVoiceRate,
+    onStatus: status => setCourseNarrationStatus(status),
+    onEnd: () => {
+      if (token === courseNarrationToken) setCourseNarrationStatus('Audio finished. Replay this step or continue when ready.');
+    },
+    onError: () => {
+      if (token === courseNarrationToken) setCourseNarrationStatus('Narration unavailable. Continue with the visual lesson.');
+    }
+  });
 }
 function pauseCourseVoice() {
-  if (courseLessonTimer) { clearTimeout(courseLessonTimer); courseLessonTimer = null; courseLessonPaused = true; }
-  else pauseNarrationEngine();
+  pauseNarrationEngine();
   $('.interactive-lesson')?.classList.add('narration-paused');
-  setCourseNarrationStatus('Paused · press Resume to continue.');
+  setCourseNarrationStatus('Paused · press Resume to continue this step.');
 }
 function resumeCourseVoice() {
   $('.interactive-lesson')?.classList.remove('narration-paused');
-  if (courseLessonPaused) {
-    courseLessonPaused = false;
-    const nextIndex = courseNarrationSegment + 1;
-    const steps = getWatchLearnSteps();
-    if (nextIndex < steps.length) {
-      courseLessonStage = nextIndex;
-      renderCourse();
-      if (courseLessonAutoplay) playCourseSegment(nextIndex, courseNarrationToken);
-      else { courseLessonWaitingContinue = true; $('#lesson-continue')?.classList.remove('hidden'); }
-    } else if (courseLessonScene < 8 && courseLessonAutoplay) advanceCourseNarrationScene();
-    else courseLessonWaitingContinue = true;
-  }
-  else resumeNarrationEngine();
+  resumeNarrationEngine();
 }
 function stopCourseNarration(clearCaption = false) {
-  courseLessonPlaying = false; courseLessonPaused = false; courseLessonWaitingContinue = false;
-  clearTimeout(courseLessonTimer); courseLessonTimer = null;
-  courseNarrationMode = null; courseNarrationToken++;
+  courseNarrationToken++;
   stopNarrationEngine(); clearCourseNarrationHighlights();
   $('.interactive-lesson')?.classList.remove('narration-paused');
   if (clearCaption) { courseLessonSubtitle = ''; courseLessonSubtitleLang = 'es'; const caption = $('#lesson-subtitle'); if (caption) caption.textContent = 'Captions will appear here during narration.'; }
   const play = $('#lesson-play'); if (play) play.textContent = '▶ Play';
   setCourseNarrationStatus('Narration stopped.');
-}
-function playSingleEnglishSegment(index = courseLessonStage) {
-  const segment = getWatchLearnSteps()[index]?.segment;
-  if (!segment || segment.language !== 'en') return;
-  stopCourseNarration(false); courseLessonAutoplay = false; setCourseNarrationCaption(segment);
-  playNarrationSegment(segment, { rate: courseVoiceRate, onStatus: status => setCourseNarrationStatus(status) });
 }
 function initializeTextToSpeechTool() {
   if (ttsInitialized) { populateTtsVoices(); return; }
@@ -772,6 +734,7 @@ function advanceCourse(module, progress, step) {
   }
   if (step.type !== 'results' && !progress.completedLessons.includes(step.id)) progress.completedLessons.push(step.id);
   progress.currentStep = Math.min(progress.currentStep + 1, module.lessons.length - 1);
+  courseLessonStage = 0;
   saveStats();
   renderCourse();
   renderStats();
