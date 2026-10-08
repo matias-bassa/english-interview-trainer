@@ -127,16 +127,9 @@ let mockCompleted = false;
 let mockTimerInterval = null;
 let mockSeconds = 60;
 let activeCourseModuleId = window.INTENSIVE_COURSE_MODULES?.[0]?.id || '';
-const LESSON_TIMING = Object.freeze({ segmentPause: 700, examplePauseBefore: 1200, importantPause: 1800, scenePause: 1500 });
-let courseLessonScene = 0;
-let courseLessonStage = 0;
-let courseNarrationToken = 0;
-let courseLessonSubtitle = '';
-let courseLessonSubtitleLang = 'es';
-let courseNarrationStatus = 'Ready';
-let courseSpeechVoices = [];
-let courseVoiceRate = 1;
-let courseVoiceEventsBound = false;
+
+let availableSpeechVoices = [];
+let speechVoiceEventsBound = false;
 let ttsInitialized = false;
 let ttsLanguage = 'en';
 let ttsSpeed = 1;
@@ -169,7 +162,7 @@ function renderStats() {
 }
 function navigate(view) {
   if (!document.querySelector(`#view-${view}`)) return;
-  if (activeView === 'course' && view !== 'course') stopCourseNarration(true);
+  if (activeView === 'course' && view !== 'course') stopCourseVideo();
   if (activeView === 'tts' && view !== 'tts') stopNarrationEngine();
   if (activeView === view) { $('#mobile-menu').setAttribute('aria-expanded', 'false'); $('.sidebar').classList.remove('open'); return; }
   if (activeView === 'speaking' && view !== 'speaking' && speakingIsRecording) stopSpeaking();
@@ -298,6 +291,12 @@ function getCourseProgress(module = getCourseModule()) {
     stats.courseProgress[module.id] = { started: false, currentStep: 0, completedLessons: [], exercises: 0, correct: 0, incorrect: 0, weaknesses: {}, activityAnswers: {}, examDraft: {}, examCompleted: false, examAttempts: 0, examScore: null, examCorrect: 0, examIncorrect: 0, examCategories: [], examAnswers: [] };
   }
   const progress = stats.courseProgress[module.id];
+  if (module.id === 'past-simple-present-perfect' && progress.courseStructureVersion !== 2) {
+    const previousStep = Math.max(0, Number(progress.currentStep) || 0);
+    progress.currentStep = previousStep === 3 ? 2 : previousStep >= 4 ? previousStep - 1 : previousStep;
+    progress.courseStructureVersion = 2;
+    saveStats();
+  }
   progress.completedLessons = Array.isArray(progress.completedLessons) ? progress.completedLessons : [];
   progress.activityAnswers = progress.activityAnswers && typeof progress.activityAnswers === 'object' ? progress.activityAnswers : {};
   progress.examDraft = progress.examDraft && typeof progress.examDraft === 'object' ? progress.examDraft : {};
@@ -311,14 +310,15 @@ function renderCourseProgress() {
   const module = getCourseModule();
   const progress = getCourseProgress(module);
   const lessonsTotal = module.lessons.length - 1;
-  const percent = Math.round(progress.completedLessons.length / lessonsTotal * 100);
+  const completedCount = module.lessons.filter(lesson => lesson.id !== 'results' && progress.completedLessons.includes(lesson.id)).length;
+  const percent = Math.round(completedCount / lessonsTotal * 100);
   const weaknesses = Object.entries(progress.weaknesses).filter(([, count]) => count > 0).sort((a, b) => b[1] - a[1]);
   const weaknessLine = weaknesses.length ? weaknesses.map(([name]) => escapeHTML(name)).join(' · ') : 'None detected yet';
   if (!progress.started) {
     target.innerHTML = '<p>Not started yet. Your lesson and exam progress will appear here.</p>';
     return;
   }
-  target.innerHTML = `<div class="course-progress-top"><div><b>${percent}%</b><span>Progress</span></div><div class="course-progress-track"><span style="width:${percent}%"></span></div></div><div class="course-progress-grid"><span>${progress.completedLessons.length}/${lessonsTotal} lessons completed</span><span>${progress.exercises} practice/exam responses · ${progress.correct} correct · ${progress.incorrect} incorrect</span><span>Final exam: ${progress.examCompleted ? `${progress.examScore}% · ${progress.examAttempts} attempt(s)` : 'not completed'}</span><span>Weaknesses detected: ${weaknessLine}</span></div>`;
+  target.innerHTML = `<div class="course-progress-top"><div><b>${percent}%</b><span>Progress</span></div><div class="course-progress-track"><span style="width:${percent}%"></span></div></div><div class="course-progress-grid"><span>${completedCount}/${lessonsTotal} lessons completed</span><span>${progress.exercises} practice/exam responses · ${progress.correct} correct · ${progress.incorrect} incorrect</span><span>Final exam: ${progress.examCompleted ? `${progress.examScore}% · ${progress.examAttempts} attempt(s)` : 'not completed'}</span><span>Weaknesses detected: ${weaknessLine}</span></div>`;
 }
 function renderCourse() {
   const module = getCourseModule();
@@ -326,16 +326,16 @@ function renderCourse() {
   const progress = getCourseProgress(module);
   if (!progress.started) { progress.started = true; stats.sessions += 1; saveStats(); renderStats(); }
   const step = module.lessons[progress.currentStep];
-  if (step.type !== 'interactive') stopCourseNarration(true);
+  if (step.type !== 'video') stopCourseVideo();
   const totalLessons = module.lessons.length - 1;
-  const percent = Math.round(progress.completedLessons.length / totalLessons * 100);
+  const completedCount = module.lessons.filter(lesson => lesson.id !== 'results' && progress.completedLessons.includes(lesson.id)).length;
+  const percent = Math.round(completedCount / totalLessons * 100);
   const root = $('#course-module-root');
-  const guidedStep = ['interactive', 'theory', 'visual'].includes(step.type);
-  root.innerHTML = `<div class="course-shell"><div class="course-module-overview"><div><span class="pill pill-course">INTENSIVE COURSE · MODULE 1</span><h2>${escapeHTML(module.title)}</h2><p>Progress saves on this device. Move through the lesson in order, and return to any completed step.</p></div><div class="course-percent"><strong>${percent}%</strong><span>complete</span></div></div><div class="course-progress-track"><span style="width:${percent}%"></span></div><div class="course-step-meta"><span>LESSON ${progress.currentStep + 1} OF ${module.lessons.length}</span><b>${escapeHTML(step.title)}</b></div><article class="course-lesson-card"><div class="course-lesson-content">${renderCourseStep(module, progress, step)}</div>${guidedStep ? '' : `<div class="course-step-footer"><span id="course-step-status" aria-live="polite">${progress.completedLessons.includes(step.id) ? 'You have completed this lesson. You can review it or continue.' : 'Take your time. You can go back whenever you need.'}</span><div class="course-navigation"><button class="button button-secondary" id="course-back"${progress.currentStep === 0 ? ' disabled' : ''}>← Previous</button>${step.type === 'exam' ? '' : `<button class="button button-primary" id="course-next">${progress.currentStep === 0 ? 'Start module' : progress.currentStep === module.lessons.length - 3 ? 'Start final exam' : 'Next step'} →</button>`}</div></div>`}</article></div>`;
-  $('#course-back')?.addEventListener('click', () => { progress.currentStep = Math.max(0, progress.currentStep - 1); courseLessonStage = 0; saveStats(); renderCourse(); });
+  const videoLesson = step.type === 'video';
+  root.innerHTML = `<div class="course-shell">${videoLesson ? '' : `<div class="course-module-overview"><div><span class="pill pill-course">INTENSIVE COURSE · MODULE 1</span><h2>${escapeHTML(module.title)}</h2><p>Progress saves on this device. Move through the course in order, and return to earlier lessons whenever you need.</p></div><div class="course-percent"><strong>${percent}%</strong><span>complete</span></div></div><div class="course-progress-track"><span style="width:${percent}%"></span></div><div class="course-step-meta"><span>LESSON ${progress.currentStep + 1} OF ${module.lessons.length}</span><b>${escapeHTML(step.title)}</b></div>`}<article class="course-lesson-card"><div class="course-lesson-content">${renderCourseStep(module, progress, step)}</div>${step.type === 'exam' ? '' : `<div class="course-step-footer">${videoLesson ? '' : `<span id="course-step-status" aria-live="polite">${progress.completedLessons.includes(step.id) ? 'You have completed this lesson. You can review it or continue.' : 'Take your time. You can go back whenever you need.'}</span>`}<div class="course-navigation"><button class="button button-secondary" id="course-back"${progress.currentStep === 0 ? ' disabled' : ''}>← Previous</button><button class="button button-primary" id="course-next">${progress.currentStep === 0 ? 'Start course' : progress.currentStep === module.lessons.length - 3 ? 'Start final exam' : 'Next'} →</button></div></div>`}</article></div>`;
+  $('#course-back')?.addEventListener('click', () => { progress.currentStep = Math.max(0, progress.currentStep - 1); saveStats(); renderCourse(); });
   const next = $('#course-next');
   if (next) next.addEventListener('click', () => advanceCourse(module, progress, step));
-  $$('.course-visual-control').forEach(button => button.addEventListener('click', () => { progress.visualMode = button.dataset.mode; renderCourse(); }));
   $$('.course-example-reveal').forEach(button => button.addEventListener('click', () => {
     const explanation = $(`#${button.dataset.target}`);
     const hidden = explanation.classList.toggle('hidden');
@@ -346,14 +346,13 @@ function renderCourse() {
   if (examSubmit) examSubmit.addEventListener('click', () => submitCourseExam(module, progress));
   const reviewExam = $('#course-review-exam');
   if (reviewExam) reviewExam.addEventListener('click', () => { progress.currentStep = module.lessons.findIndex(lesson => lesson.type === 'exam'); saveStats(); renderCourse(); });
-  if (step.type === 'interactive') bindCourseInteractiveLesson();
-  else if (step.type === 'theory' || step.type === 'visual') bindCourseGuidedLesson();
+  if (step.type === 'video') bindCourseVideoLesson(module, step);
 }
 function renderCourseStep(module, progress, step) {
   switch (step.type) {
     case 'introduction': return `<p class="course-kicker">A CLEAR WAY TO TALK ABOUT YOUR EXPERIENCE</p><h2>Choose the tense that matches the meaning.</h2><p class="course-copy">En esta clase vas a aprender a distinguir entre una experiencia terminada en un período pasado y una experiencia que sigue teniendo relación con el presente. No se trata de memorizar una palabra señal: se trata de entender qué querés comunicar.</p><div class="course-outcomes"><div><b>01</b><span>Understand when a past period is finished.</span></div><div><b>02</b><span>Connect experience with the present.</span></div><div><b>03</b><span>Use both forms naturally in interview answers.</span></div></div><div class="course-callout"><b>La pregunta clave:</b> ¿Estoy ubicando la acción en un momento pasado terminado, o estoy hablando de una experiencia conectada con ahora?</div>`;
-    case 'interactive': return renderCourseInteractiveLesson();
-    case 'theory': case 'visual': return renderCourseGuidedStage(module, step);
+    case 'video': return renderCourseVideoLesson(module, step);
+    case 'study-guide': return renderCourseStudyGuide(module);
     case 'examples': return `<p class="course-kicker">EXAMPLES IN CONTEXT</p><h2>Notice what each sentence tells you.</h2><div class="course-example-grid">${module.examples.map((example, index) => `<article class="course-example-card ${example.label === 'PAST SIMPLE' ? 'past-card' : 'perfect-card'}"><span class="tense-label">${example.label}</span><h3>${highlightCourseCues(example.sentence)}</h3><button class="text-button course-example-reveal" data-target="course-example-${index}">Why this tense?</button><p class="course-example-explanation hidden" id="course-example-${index}">${escapeHTML(example.explanation)}</p></article>`).join('')}</div>`;
     case 'guided': return renderCourseActivities(module, progress, step, module.guidedExercises, 'guided');
     case 'practice': return renderCourseActivities(module, progress, step, module.practiceExercises, 'practice');
@@ -366,205 +365,70 @@ function renderCourseStep(module, progress, step) {
 function highlightCourseCues(text) {
   return escapeHTML(text).replace(/\b(yesterday|last\s+(?:week|year|month)|in\s+20\d{2}|\w+\s+(?:days?|weeks?|months?|years?)\s+ago|ever|never|already|yet|just|since|for)\b/gi, '<mark class="course-cue">$1</mark>');
 }
-const appCourseNarrationScenes = [
-  { title: 'Introduction', kicker: 'WELCOME', kind: 'opening', body: '<p>Past Simple vs Present Perfect</p>' },
-  { title: 'Past Simple · meaning', kicker: 'A FINISHED PAST PERIOD', kind: 'past', body: '<p>Past Simple presents an action inside a finished past time.</p>' },
-  { title: 'Past Simple · examples', kicker: 'A FINISHED TIME OR PERIOD', kind: 'past', body: '<p>I moved to another city in 2017. · I worked there for five months.</p>' },
-  { title: 'Present Perfect · meaning', kicker: 'EXPERIENCE UNTIL NOW', kind: 'perfect', body: '<p>Present Perfect connects experience or a continuing situation with now.</p>' },
-  { title: 'Present Perfect · examples', kicker: 'EXPERIENCE AND CONTINUITY', kind: 'perfect', body: '<p>I have worked with customers. · I have lived here since 2017.</p>' },
-  { title: 'Direct comparison', kicker: 'THE MEANING CHANGES', kind: 'compare', body: '<p>I worked there in 2020. · I have worked in customer support.</p>' },
-  { title: 'How do I choose?', kicker: 'A QUESTION, NOT A SHORTCUT', kind: 'decision', body: '<p>Finished time? Past Simple. Experience until now? Present Perfect. Signal words are clues, not absolute rules.</p>' },
-  { title: 'Interview application', kicker: 'PUT IT INTO AN ANSWER', kind: 'perfect', body: '<p>I worked in technical support in 2020, and I have helped customers solve technical problems.</p>' },
-  { title: 'Mini practice', kicker: 'CHOOSE THE MEANING', kind: 'decision', body: '<p>I ___ with international customers last year.</p>' }
-];
-const watchLearnSceneSteps = {
-  0: [
-    { type: 'explanation', title: 'What this class will help you do', segment: { language: 'es', text: 'En esta clase vas a elegir entre Past Simple y Present Perfect según el significado: un período pasado terminado o una experiencia conectada con ahora.' }, visual: '<div class="lesson-title-card"><span>INTENSIVE COURSE · MODULE 1</span><h3>PAST SIMPLE <i>vs</i><br>PRESENT PERFECT</h3><p>Meaning first. Grammar follows.</p></div>' }
-  ],
-  1: [
-    { type: 'explanation', title: 'PAST SIMPLE · WHEN?', segment: { language: 'en', text: 'Ask yourself: am I talking about when an action happened? Past Simple presents the action inside a finished past time.' }, visual: '<div class="watch-concept-note lesson-past"><b>PAST SIMPLE · WHEN?</b><p>Am I talking about when it happened?</p><small>An action presented in a finished past period.</small></div>' },
-    { type: 'example', title: 'A FINISHED TIME', segment: { language: 'en', text: 'I worked at a support company in 2020.' }, visual: '<article class="watch-example-card lesson-past"><span>PAST SIMPLE</span><h3>I worked at a support company in 2020.</h3><p>“In 2020” names a finished time.</p></article>' },
-    { type: 'concept', title: 'THE TIME IS OVER', segment: { language: 'en', text: 'The year 2020 is before now and has ended. That finished timeline is why this sentence uses Past Simple.' }, visual: `<div class="watch-concept-note lesson-past"><b>FINISHED TIME</b>${renderLessonTimeline('past', '2020')}<p>2020 ended. The action is located before now.</p></div>` }
-  ],
-  2: [
-    { type: 'example', title: 'A FINISHED POINT', segment: { language: 'en', text: 'I moved to another city in 2017.' }, visual: '<article class="watch-example-card lesson-past"><span>PAST SIMPLE · FINISHED POINT</span><h3>I moved to another city in 2017.</h3></article>' },
-    { type: 'example', title: 'A FINISHED PERIOD', segment: { language: 'en', text: 'I worked there for five months.' }, visual: '<article class="watch-example-card lesson-past"><span>PAST SIMPLE · FINISHED PERIOD</span><h3>I worked there for five months.</h3><p>Here, the five-month job has ended.</p></article>' }
-  ],
-  3: [
-    { type: 'explanation', title: 'PRESENT PERFECT · EXPERIENCE UNTIL NOW', segment: { language: 'es', text: 'Present Perfect presenta una experiencia acumulada hasta ahora o una situación conectada con el presente, sin ubicarla en una fecha pasada terminada.' }, visual: '<div class="watch-concept-note lesson-perfect"><b>PRESENT PERFECT · EXPERIENCE → NOW</b><p>Past experience that matters in the present.</p></div>' },
-    { type: 'example', title: 'RELEVANT EXPERIENCE', segment: { language: 'en', text: 'I have worked in technical support.' }, visual: '<article class="watch-example-card lesson-perfect"><span>PRESENT PERFECT</span><h3>I have worked in technical support.</h3><p>No specific finished date is given.</p></article>' },
-    { type: 'concept', title: 'CONNECTED TO NOW', segment: { language: 'es', text: 'La línea representa una experiencia que llega hasta el presente. No decimos cuándo ocurrió cada etapa.' }, visual: `<div class="watch-concept-note lesson-perfect"><b>EXPERIENCE UNTIL NOW</b>${renderLessonTimeline('experience', 'UNTIL NOW')}<p>The experience is relevant now; no finished date is named.</p></div>` }
-  ],
-  4: [
-    { type: 'example', title: 'CUSTOMER EXPERIENCE', segment: { language: 'en', text: 'I have worked with customers.' }, visual: '<article class="watch-example-card lesson-perfect"><span>PRESENT PERFECT · EXPERIENCE</span><h3>I have worked with customers.</h3></article>' },
-    { type: 'example', title: 'A SITUATION THAT CONTINUES', segment: { language: 'en', text: 'I have lived in this city since 2017.' }, visual: '<article class="watch-example-card lesson-perfect"><span>PRESENT PERFECT · STILL TRUE NOW</span><h3>I have lived in this city since 2017.</h3><p>I still live here now.</p></article>' }
-  ],
-  5: [
-    { type: 'comparison', title: 'SAME TOPIC · DIFFERENT FOCUS', segment: { language: 'es', text: 'La primera oración ubica el trabajo en 2020, un momento terminado. La segunda habla de experiencia en customer support hasta ahora y no especifica cuándo.' }, visual: '<div class="watch-comparison"><article class="lesson-past"><span>PAST SIMPLE · WHEN?</span><h3>I worked there in 2020.</h3><b>A specific finished time</b></article><i>versus</i><article class="lesson-perfect"><span>PRESENT PERFECT · EXPERIENCE</span><h3>I have worked in customer support.</h3><b>Experience up to now</b></article></div>' }
-  ],
-  6: [
-    { type: 'concept', title: 'ASK WHAT YOU MEAN', segment: { language: 'en', text: 'If you mention a finished past time, choose Past Simple. If you talk about experience up to now, Present Perfect may fit.' }, visual: '<div class="watch-comparison"><article class="lesson-past"><span>WHEN DID IT HAPPEN?</span><h3>Finished time → Past Simple</h3></article><i>or</i><article class="lesson-perfect"><span>WHAT IS MY EXPERIENCE?</span><h3>Until now → Present Perfect</h3></article></div>' },
-    { type: 'explanation', title: 'SIGNAL WORDS ARE CLUES', segment: { language: 'es', text: 'Ever, never, since y for suelen aparecer con Present Perfect, pero no son reglas automáticas. For también puede describir un período ya terminado. El contexto y el significado deciden.' }, visual: '<div class="watch-concept-note"><b>CLUES, NOT ABSOLUTE RULES</b><div class="signal-note"><span>ever</span><span>never</span><span>since</span><span>for</span></div><p>Check whether the period is finished or still connected to now.</p></div>' }
-  ],
-  7: [
-    { type: 'example', title: 'A NATURAL INTERVIEW ANSWER', segment: { language: 'en', text: 'I worked in technical support in 2020, and I have helped customers solve technical problems.' }, visual: '<article class="watch-example-card lesson-perfect"><span>INTERVIEW APPLICATION</span><h3>I worked in technical support in 2020, and I have helped customers solve technical problems.</h3><p>Finished job period · relevant experience with customers</p></article>' }
-  ],
-  8: [
-    { type: 'check', title: 'Choose the tense', segment: { language: 'es', text: 'El año pasado es un período terminado. Elegí la forma verbal que presenta la acción como pasada y terminada.' }, requiresInteraction: true, visual: '<div class="watch-check"><p>I ___ with international customers last year.</p><div class="watch-check-options"><button class="button button-secondary" data-watch-answer="worked">worked</button><button class="button button-secondary" data-watch-answer="have worked">have worked</button></div><p id="watch-check-feedback" class="watch-check-feedback" aria-live="polite">“Last year” is a finished time. Choose the matching form.</p></div>' }
-  ]
-};function getWatchLearnSteps(sceneIndex = courseLessonScene, scene = appCourseNarrationScenes[sceneIndex]) {
-  if (watchLearnSceneSteps[sceneIndex]) return watchLearnSceneSteps[sceneIndex];
-  const segments = currentCourseNarrationSegments(scene);
-  return segments.map((segment, index) => ({ type: segment.type || (segment.language === 'en' ? 'example' : 'explanation'), title: segment.type === 'example' || segment.language === 'en' ? 'EXAMPLE' : 'EXPLANATION', segment, target: segment.target, requiresContinue: Boolean(scene?.continueAfterNarration && index === segments.length - 1) }));
+function renderCourseVideoLesson(module, step) {
+  const media = step.assetKey?.split('.').reduce((value, key) => value?.[key], window.COURSE_VIDEO_ASSETS) || {};
+  const videoUrl = String(media.videoSrc || '').trim();
+  const posterUrl = String(media.poster || '').trim();
+  const captionsUrl = String(media.captions || '').trim();
+  const transcript = String(media.transcript || '').trim();
+  const title = step.title || 'Watch & Learn';
+  const videoMarkup = videoUrl
+    ? `<video id="course-watch-video" class="course-video" controls playsinline preload="metadata" aria-label="${escapeHTML(title)}"${posterUrl ? ` poster="${escapeHTML(posterUrl)}"` : ''}><source src="${escapeHTML(videoUrl)}" type="video/mp4">${captionsUrl ? `<track kind="captions" src="${escapeHTML(captionsUrl)}" srclang="en" label="English captions" default>` : ''}Your browser does not support HTML video.</video><p class="course-video-status" id="course-video-status" role="status" aria-live="polite">${media.duration ? `Video lesson · ${escapeHTML(media.duration)}` : 'Video lesson ready.'}</p>${transcript ? `<details class="course-study-accordion"><summary>Video transcript</summary><div class="course-study-copy">${escapeHTML(transcript)}</div></details>` : ''}`
+    : `<div class="course-video-pending" role="status"><span class="course-video-pending-icon" aria-hidden="true">▶</span><h2>Video lesson coming soon</h2><p>The video asset has not been added yet. The player will appear here when the MP4 is ready.</p><small>Expected file</small><code>${escapeHTML(media.expectedVideoPath || 'assets/videos/module-1/lesson.mp4')}</code></div>`;
+  return `<section class="course-video-lesson" aria-labelledby="course-video-title"><p class="course-kicker">WATCH &amp; LEARN · MODULE 1</p><h2 id="course-video-title">${escapeHTML(module.title.replace(/^Module 1 — /, ''))}</h2><div class="course-video-frame">${videoMarkup}</div></section>`;
 }
-function getCourseGuidedSlides(module, step) {
-  if (step.type === 'theory') return [
-    { title: 'PAST SIMPLE · WHEN?', language: 'en', text: 'Use Past Simple to present an action as finished in a past period that has ended.', visual: '<article class="watch-concept-note lesson-past"><b>PAST SIMPLE · WHEN?</b><p>An action presented in a finished past period.</p></article>' },
-    { title: 'A SPECIFIC FINISHED TIME', language: 'en', text: 'I moved to another city in 2017. The year tells us when, and that year has ended.', visual: `<article class="watch-example-card lesson-past"><span>PAST SIMPLE</span><h3>${escapeHTML(module.theory.past.examples[1])}</h3><p>2017 is a specific, finished time.</p></article>` },
-    { title: 'PAST TIME CLUES', language: 'es', text: 'Yesterday, last year e in 2020 pueden indicar un tiempo terminado. Son pistas: el contexto sigue definiendo el significado.', visual: `<div class="watch-concept-note lesson-past"><b>PAST SIMPLE · COMMON CLUES</b><div class="signal-note">${module.theory.past.signals.slice(0, 5).map(word => `<span>${escapeHTML(word)}</span>`).join('')}</div><p>Clues help; context decides.</p></div>` },
-    { title: 'PRESENT PERFECT · EXPERIENCE UNTIL NOW', language: 'es', text: 'Usamos Present Perfect para hablar de experiencia acumulada hasta ahora, sin especificar un momento pasado terminado.', visual: '<div class="watch-concept-note lesson-perfect"><b>EXPERIENCE → NOW</b><p>A past experience that is relevant in the present.</p></div>' },
-    { title: 'BUILD THE FORM', language: 'en', text: 'Present Perfect uses have or has plus a past participle. In this example, have worked is the verb form.', visual: `<div class="watch-concept-note lesson-perfect"><b>HAVE / HAS + PAST PARTICIPLE</b><h3>${escapeHTML(module.theory.perfect.examples[0])}</h3><p>have + worked</p></div>` },
-    { title: 'SIGNAL WORDS ARE NOT RULES', language: 'es', text: 'Ever, never, since y for suelen aparecer con Present Perfect. Son pistas, no reglas absolutas; for también puede acompañar un período terminado.', visual: `<div class="watch-concept-note lesson-perfect"><b>COMMON PRESENT PERFECT CLUES</b><div class="signal-note">${module.theory.perfect.signals.map(word => `<span>${escapeHTML(word)}</span>`).join('')}</div><p>Choose by meaning, not by one word alone.</p></div>` }
-  ];
-  return [
-    { title: 'PAST SIMPLE · FINISHED TIME', language: 'en', text: 'The timeline ends before now. I worked there in 2020 names a specific finished period.', visual: `<div class="watch-concept-note lesson-past"><b>PAST SIMPLE · FINISHED TIME</b>${renderLessonTimeline('past', '2020')}<h3>I worked there in 2020.</h3></div>` },
-    { title: 'PRESENT PERFECT · EXPERIENCE UNTIL NOW', language: 'en', text: 'This timeline connects a past experience with now. I have worked in customer support does not name a finished date.', visual: `<div class="watch-concept-note lesson-perfect"><b>PRESENT PERFECT · EXPERIENCE UNTIL NOW</b>${renderLessonTimeline('experience', 'UNTIL NOW')}<h3>I have worked in customer support.</h3></div>` },
-    { title: 'ONE KEY DIFFERENCE', language: 'es', text: 'La primera oración responde cuándo y ubica el hecho en un tiempo terminado. La segunda habla de experiencia hasta ahora sin decir cuándo. El significado cambia, y por eso cambia el tiempo verbal.', visual: '<div class="watch-comparison"><article class="lesson-past"><span>WHEN? · PAST SIMPLE</span><h3>I worked there in 2020.</h3><b>Finished time</b></article><i>versus</i><article class="lesson-perfect"><span>EXPERIENCE? · PRESENT PERFECT</span><h3>I have worked in customer support.</h3><b>Connected to now</b></article></div>' }
-  ];
+function bindCourseVideoLesson() {
+  const video = $('#course-watch-video');
+  if (!video) return;
+  video.addEventListener('loadedmetadata', () => {
+    const status = $('#course-video-status');
+    if (status && Number.isFinite(video.duration)) status.textContent = `Video ready · ${Math.floor(video.duration / 60)}:${String(Math.floor(video.duration % 60)).padStart(2, '0')}`;
+  });
+  video.addEventListener('error', () => {
+    const status = $('#course-video-status');
+    if (status) status.textContent = 'This video could not be loaded. Check the configured video asset path.';
+  });
 }
-function renderCourseGuidedStage(module, step) {
-  const slides = getCourseGuidedSlides(module, step);
-  courseLessonStage = Math.max(0, Math.min(courseLessonStage, slides.length - 1));
-  const slide = slides[courseLessonStage];
-  const visual = `<p class="course-kicker">${escapeHTML(step.title.toUpperCase())} · ${courseLessonStage + 1} / ${slides.length}</p><h2>${escapeHTML(slide.title)}</h2><div class="watch-stage-content">${slide.visual}</div>`;
-  return `<section class="interactive-lesson course-guided-lesson" aria-label="${escapeHTML(step.title)}"><article class="interactive-scene scene-${slide.language === 'en' && slide.title.includes('PAST') ? 'past' : slide.title.includes('PRESENT') || slide.title.includes('SIGNAL') ? 'perfect' : 'compare'}">${visual}</article>${renderCourseNarrationPanel(slide)}${renderCourseAudioControls()}<div class="interactive-controls watch-navigation-controls"><button class="button button-secondary" id="lesson-previous">← Previous</button><button class="button button-primary" id="lesson-next">Next →</button></div></section>`;
+function stopCourseVideo() {
+  const video = $('#course-watch-video');
+  if (video && !video.paused) video.pause();
 }
-function renderCourseNarrationPanel(slide) {
-  const subtitle = courseLessonSubtitle || 'Captions will appear here during narration.';
-  const language = courseLessonSubtitle ? courseLessonSubtitleLang : 'en';
-  return `<section class="lesson-subtitle-panel" aria-label="Narration and captions"><div><span class="lesson-audio-indicator" aria-hidden="true">🔊</span><b id="lesson-narration-status" aria-live="polite">${escapeHTML(courseNarrationStatus)}</b><label for="lesson-voice-speed">Speed</label><select id="lesson-voice-speed" aria-label="Narration speed"><option value="0.75"${courseVoiceRate === .75 ? ' selected' : ''}>0.75×</option><option value="1"${courseVoiceRate === 1 ? ' selected' : ''}>1×</option><option value="1.25"${courseVoiceRate === 1.25 ? ' selected' : ''}>1.25×</option><option value="1.5"${courseVoiceRate === 1.5 ? ' selected' : ''}>1.5×</option></select></div><p id="lesson-subtitle" class="lesson-subtitle" lang="${language}">${escapeHTML(subtitle)}</p></section>`;
+function renderCourseStudyGuide(module) {
+  const guide = module.studyGuide;
+  const past = module.theory.past;
+  const perfect = module.theory.perfect;
+  return `<section class="course-study-guide" aria-labelledby="course-study-guide-title"><p class="course-kicker">STUDY GUIDE · MODULE 1</p><h2 id="course-study-guide-title">Past Simple vs Present Perfect</h2><p class="course-study-intro">${escapeHTML(guide.theoryIntro)}</p>
+    <details class="course-study-accordion" open><summary>Theory</summary><div class="course-study-grid"><article class="lesson-past"><h3>${escapeHTML(past.heading)}</h3><p>${escapeHTML(past.body)}</p><p class="study-example">${highlightCourseCues(past.examples[0])}</p></article><article class="lesson-perfect"><h3>${escapeHTML(perfect.heading)}</h3><p>${escapeHTML(perfect.body)}</p><p class="study-example">${highlightCourseCues(perfect.examples[0])}</p></article></div><p class="course-study-note">Key question: ¿el período pasado ya terminó, o la experiencia/situación sigue conectada con ahora?</p></details>
+    <details class="course-study-accordion"><summary>Key Rules</summary><div class="course-study-list">${guide.keyRules.map(rule => `<article><h3>${escapeHTML(rule.title)}</h3><p>${escapeHTML(rule.rule)}</p><p class="study-example">${highlightCourseCues(rule.example)}</p></article>`).join('')}<div class="study-timeline-grid"><article class="lesson-past"><b>PAST · FINISHED</b><div class="study-timeline past"><span>PAST</span><i></i><span>NOW</span></div><small>A finished period ends before now.</small></article><article class="lesson-perfect"><b>EXPERIENCE · UNTIL NOW</b><div class="study-timeline perfect"><span>PAST</span><i></i><span>NOW</span></div><small>Experience or a continuing situation connects to now.</small></article></div></div></details>
+    <details class="course-study-accordion"><summary>Examples</summary><div class="course-study-list">${guide.additionalExamples.map(example => `<article><p class="study-example">${highlightCourseCues(example.sentence)}</p><p>${escapeHTML(example.note)}</p></article>`).join('')}</div></details>
+    <details class="course-study-accordion"><summary>Common Mistakes</summary><div class="course-study-list">${guide.commonMistakes.map(item => `<article class="study-mistake"><p class="study-wrong">${escapeHTML(item.wrong)}</p><p class="study-correct">${escapeHTML(item.correct)}</p><p>${escapeHTML(item.note)}</p></article>`).join('')}</div></details>
+    <details class="course-study-accordion"><summary>Interview English</summary><div class="course-study-list">${guide.interviewEnglish.map(item => `<article><p class="study-example">${highlightCourseCues(item.sentence)}</p><p>${escapeHTML(item.purpose)}</p></article>`).join('')}</div></details></section>`;
 }
-function renderCourseAudioControls() {
-  return `<div class="interactive-controls watch-audio-controls"><div class="interactive-playback"><button class="button button-primary" id="lesson-play">▶ Play</button><button class="button button-secondary" id="lesson-pause">⏸ Pause</button><button class="button button-secondary" id="lesson-resume">▶ Resume</button><button class="button button-secondary" id="lesson-replay">↻ Replay</button><button class="button button-secondary" id="lesson-stop">■ Stop</button></div></div>`;
-}
-function renderCourseInteractiveLesson() {
-  const scenes = appCourseNarrationScenes;
-  courseLessonScene = Math.max(0, Math.min(courseLessonScene, scenes.length - 1));
-  const scene = scenes[courseLessonScene];
-  const steps = getWatchLearnSteps(courseLessonScene, scene);
-  courseLessonStage = Math.max(0, Math.min(courseLessonStage, steps.length - 1));
-  const stage = steps[courseLessonStage];
-  const visual = stage.type === 'check' ? renderWatchMiniCheck() : stage.visual || renderWatchLearnTarget(scene, stage.target) || `<p class="watch-stage-text">${escapeHTML(stage.segment?.text || '')}</p>`;
-  const stageLabel = `${String(stage.type || 'explanation').replace('-', ' ').toUpperCase()} · ${courseLessonStage + 1} / ${steps.length}`;
-  const savedWatchCheck = getCourseProgress().activityAnswers['watch-learn-scene-09-mini-check'];
-  const canAdvanceStage = !stage.requiresInteraction || Boolean(savedWatchCheck);
-  const partProgress = courseLessonStage + 1;
-  return `<section class="interactive-lesson" aria-label="Guided class"><div class="interactive-player-heading"><div><p class="course-kicker">WATCH &amp; LEARN · MODULE 1</p><h2>Past Simple vs Present Perfect</h2></div><span class="interactive-scene-count">PART ${courseLessonScene + 1} OF ${scenes.length}</span></div><div class="interactive-progress"><span style="width:${(courseLessonScene + 1) / scenes.length * 100}%"></span></div><div class="watch-stage-progress" aria-label="Lesson progress"><span>${partProgress} / ${steps.length}</span><div><i style="width:${partProgress / steps.length * 100}%"></i></div></div><article class="interactive-scene scene-${scene.kind}" aria-live="polite"><p class="course-kicker">${stageLabel}</p><h2>${stage.title || scene.title}</h2><div class="interactive-scene-body watch-stage-content">${visual}</div><details class="watch-full-scene"><summary>More explanation</summary>${scene.body}</details></article>${renderCourseNarrationPanel(stage.segment || { language: 'en' })}${renderCourseAudioControls()}<div class="interactive-controls watch-navigation-controls"><button class="button button-secondary" id="lesson-previous"${courseLessonScene === 0 && courseLessonStage === 0 ? '' : ''}>← Previous</button><button class="button button-primary" id="lesson-next"${canAdvanceStage ? '' : ' disabled'}>Next →</button></div><p class="interactive-hint">The narration starts with each new part. It never moves the lesson forward by itself.</p></section>`;
-}
-function renderWatchLearnTarget(scene, targets) {
-  if (!targets) return '';
-  const holder = document.createElement('div');
-  holder.innerHTML = scene.body;
-  return targets.split(/\s+/).map(target => holder.querySelector(`[data-lesson-target~="${CSS.escape(target)}"]`)?.outerHTML || '').join('');
-}
-function renderWatchMiniCheck() {
-  const saved = getCourseProgress().activityAnswers['watch-learn-scene-09-mini-check'];
-  const feedback = saved ? (saved.isCorrect ? 'Correct. “Last year” is a finished time, so use Past Simple.' : 'Not quite. “Last year” is finished; the correct form is “worked”.') : 'Choose the form that matches the finished time.';
-  return `<div class="watch-check"><p>I ___ with international customers last year.</p><div class="watch-check-options"><button class="button button-secondary" data-watch-answer="worked"${saved ? ' disabled' : ''}>worked</button><button class="button button-secondary" data-watch-answer="have worked"${saved ? ' disabled' : ''}>have worked</button></div><p id="watch-check-feedback" class="watch-check-feedback${saved?.isCorrect ? ' is-correct' : saved ? ' is-incorrect' : ''}" aria-live="polite">${feedback}</p></div>`;
-}
-function renderLessonTimeline(type, label, target = '') {
-  return `<div class="lesson-timeline ${type === 'experience' ? 'lesson-timeline-experience' : 'lesson-timeline-past'}"${target ? ` data-lesson-target="${target}"` : ''}><div><span>PAST</span><span>NOW</span></div><div class="lesson-timeline-line"><i></i></div><b>${escapeHTML(label)}</b></div>`;
-}
-function bindCourseInteractiveLesson() {
-  bindCourseAudioControls();
-  $('#lesson-next').addEventListener('click', () => moveGuidedCourse(1));
-  $('#lesson-previous').addEventListener('click', () => moveGuidedCourse(-1));
-  $('#lesson-voice-speed').addEventListener('change', event => { courseVoiceRate = Number(event.target.value) || 1; });
-  playCourseStage();
-  $$('[data-watch-answer]').forEach(button => button.addEventListener('click', () => {
-    const progress = getCourseProgress();
-    const key = 'watch-learn-scene-09-mini-check';
-    if (progress.activityAnswers[key]) return;
-    const isCorrect = button.dataset.watchAnswer === 'worked';
-    progress.activityAnswers[key] = { response: button.dataset.watchAnswer, isCorrect, explanation: '“Last year” marks a specific finished time, so use Past Simple: worked.' };
-    recordCourseExercise('Present Perfect vs Past Simple', isCorrect, progress);
-    renderCourse();
-  }));
-}
-function bindCourseAudioControls() {
-  $('#lesson-play').addEventListener('click', () => playCourseStage());
-  $('#lesson-pause').addEventListener('click', pauseCourseVoice);
-  $('#lesson-resume').addEventListener('click', resumeCourseVoice);
-  $('#lesson-replay').addEventListener('click', () => playCourseStage());
-  $('#lesson-stop').addEventListener('click', () => stopCourseNarration(false));
-}
-function bindCourseGuidedLesson() {
-  bindCourseAudioControls();
-  $('#lesson-next').addEventListener('click', () => moveGuidedCourse(1));
-  $('#lesson-previous').addEventListener('click', () => moveGuidedCourse(-1));
-  $('#lesson-voice-speed').addEventListener('change', event => { courseVoiceRate = Number(event.target.value) || 1; });
-  playCourseStage();
-}
-function moveGuidedCourse(direction) {
-  const module = getCourseModule();
-  const progress = getCourseProgress(module);
-  const current = module.lessons[progress.currentStep];
-  const total = current.type === 'interactive' ? getWatchLearnSteps(courseLessonScene).length : getCourseGuidedSlides(module, current).length;
-  const currentStage = current.type === 'interactive' ? getWatchLearnSteps(courseLessonScene)[courseLessonStage] : null;
-  if (direction > 0 && currentStage?.requiresInteraction && !progress.activityAnswers['watch-learn-scene-09-mini-check']) return;
-  stopCourseNarration(true);
-  if (direction > 0) {
-    if (courseLessonStage < total - 1) courseLessonStage += 1;
-    else if (current.type === 'interactive' && courseLessonScene < appCourseNarrationScenes.length - 1) { courseLessonScene += 1; courseLessonStage = 0; }
-    else { advanceCourse(module, progress, current); return; }
-  } else if (courseLessonStage > 0) courseLessonStage -= 1;
-  else if (current.type === 'interactive' && courseLessonScene > 0) {
-    courseLessonScene -= 1;
-    courseLessonStage = getWatchLearnSteps().length - 1;
-  } else {
-    progress.currentStep = Math.max(0, progress.currentStep - 1);
-    if (module.lessons[progress.currentStep]?.type === 'interactive') {
-      courseLessonScene = appCourseNarrationScenes.length - 1;
-      courseLessonStage = getWatchLearnSteps(courseLessonScene).length - 1;
-    } else courseLessonStage = 0;
-    saveStats();
-  }
-  courseLessonSubtitle = '';
-  renderCourse();
-}
-function isCourseSpeechAvailable() { return !!(window.speechSynthesis?.speak && window.SpeechSynthesisUtterance); }
-function loadCourseSpeechVoices() {
-  if (!isCourseSpeechAvailable()) return [];
-  try { courseSpeechVoices = window.speechSynthesis.getVoices() || []; } catch { courseSpeechVoices = []; }
-  if (!courseVoiceEventsBound) {
-    courseVoiceEventsBound = true;
-    const refresh = () => { try { courseSpeechVoices = window.speechSynthesis.getVoices() || []; } catch { courseSpeechVoices = []; } populateTtsVoices(); };
+function isSpeechSynthesisAvailable() { return !!(window.speechSynthesis?.speak && window.SpeechSynthesisUtterance); }
+function loadSpeechVoices() {
+  if (!isSpeechSynthesisAvailable()) return [];
+  try { availableSpeechVoices = window.speechSynthesis.getVoices() || []; } catch { availableSpeechVoices = []; }
+  if (!speechVoiceEventsBound) {
+    speechVoiceEventsBound = true;
+    const refresh = () => { try { availableSpeechVoices = window.speechSynthesis.getVoices() || []; } catch { availableSpeechVoices = []; } populateTtsVoices(); };
     window.speechSynthesis.addEventListener?.('voiceschanged', refresh);
     if (!window.speechSynthesis.addEventListener) window.speechSynthesis.onvoiceschanged = refresh;
   }
-  return courseSpeechVoices;
+  return availableSpeechVoices;
 }
 function getBestVoice(language = 'en') {
-  const voices = loadCourseSpeechVoices();
+  const voices = loadSpeechVoices();
   const norm = voice => String(voice.lang || '').toLowerCase().replace('_', '-');
   if (language === 'es') return voices.find(v => norm(v) === 'es-ar') || voices.find(v => ['es-latam','es-419','es-mx','es-cl','es-co','es-pe','es-uy'].includes(norm(v))) || voices.find(v => norm(v) === 'es-es') || voices.find(v => norm(v).startsWith('es')) || null;
   return voices.find(v => norm(v) === 'en-us') || voices.find(v => norm(v) === 'en-gb') || voices.find(v => norm(v).startsWith('en')) || null;
-}
-function currentCourseNarrationSegments(scene = appCourseNarrationScenes[courseLessonScene]) {
-  return (scene?.segments || []).map(item => {
-    const language = item.language || item.lang || 'en';
-    const type = item.type || (language === 'en' ? 'example' : 'explanation');
-    return { ...item, language, lang: language, audioSrc: item.audioSrc ?? null, type, pauseBefore: item.pauseBefore ?? (type === 'example' ? LESSON_TIMING.examplePauseBefore : 0), pauseAfter: item.pauseAfter ?? (type === 'example' ? LESSON_TIMING.importantPause : LESSON_TIMING.segmentPause) };
-  });
-}
-function notifyNarration(status, options = {}) { narrationEngine.onStatus?.(status, options); }
+}function notifyNarration(status, options = {}) { narrationEngine.onStatus?.(status, options); }
 function stopNarrationEngine() {
   narrationEngine.token++;
   if (narrationEngine.audio) { narrationEngine.audio.onended = narrationEngine.audio.onerror = null; try { narrationEngine.audio.pause(); narrationEngine.audio.currentTime = 0; } catch {} }
   narrationEngine.audio = null;
   narrationEngine.utterance = null;
   narrationEngine.paused = false;
-  if (isCourseSpeechAvailable()) { try { window.speechSynthesis.cancel(); } catch {} }
+  if (isSpeechSynthesisAvailable()) { try { window.speechSynthesis.cancel(); } catch {} }
 }
 function playNarrationSegment(segment, options = {}) {
   stopNarrationEngine();
@@ -574,7 +438,7 @@ function playNarrationSegment(segment, options = {}) {
   narrationEngine.onStatus = options.onStatus || null;
   const finish = () => { if (token === narrationEngine.token) { notifyNarration('Ready'); options.onEnd?.(); } };
   const speak = () => {
-    if (!isCourseSpeechAvailable()) { notifyNarration('Voice unavailable · visual controls remain available'); options.onError?.('unavailable'); return; }
+    if (!isSpeechSynthesisAvailable()) { notifyNarration('Voice unavailable · visual controls remain available'); options.onError?.('unavailable'); return; }
     try {
       const utterance = new window.SpeechSynthesisUtterance(segment.text);
       const voice = options.voice || getBestVoice(segment.language || 'en');
@@ -599,59 +463,9 @@ function playNarrationSegment(segment, options = {}) {
   } else speak();
   return token;
 }
-function pauseNarrationEngine() { if (narrationEngine.audio) narrationEngine.audio.pause(); else if (isCourseSpeechAvailable()) window.speechSynthesis.pause(); narrationEngine.paused = true; notifyNarration('Paused'); }
-function resumeNarrationEngine() { if (!narrationEngine.paused) return; narrationEngine.paused = false; if (narrationEngine.audio) narrationEngine.audio.play().catch(() => {}); else if (isCourseSpeechAvailable()) window.speechSynthesis.resume(); notifyNarration('Speaking'); }
+function pauseNarrationEngine() { if (narrationEngine.audio) narrationEngine.audio.pause(); else if (isSpeechSynthesisAvailable()) window.speechSynthesis.pause(); narrationEngine.paused = true; notifyNarration('Paused'); }
+function resumeNarrationEngine() { if (!narrationEngine.paused) return; narrationEngine.paused = false; if (narrationEngine.audio) narrationEngine.audio.play().catch(() => {}); else if (isSpeechSynthesisAvailable()) window.speechSynthesis.resume(); notifyNarration('Speaking'); }
 function replayNarration() { if (narrationEngine.segment) playNarrationSegment(narrationEngine.segment, narrationEngine.options || {}); }
-function setCourseNarrationStatus(text) { courseNarrationStatus = text; const status = $('#lesson-narration-status'); if (status) status.textContent = text; }
-function clearCourseNarrationHighlights() { $$('.interactive-scene .narration-highlight').forEach(element => element.classList.remove('narration-highlight')); }
-function setCourseNarrationCaption(segment) {
-  courseLessonSubtitle = segment.text;
-  courseLessonSubtitleLang = segment.language === 'en' ? 'en-US' : 'es';
-  const caption = $('#lesson-subtitle'); if (caption) { caption.textContent = segment.text; caption.lang = courseLessonSubtitleLang; }
-  clearCourseNarrationHighlights();
-  if (segment.target) segment.target.split(/\s+/).forEach(key => $$('.interactive-scene [data-lesson-target]').filter(el => el.dataset.lessonTarget?.split(/\s+/).includes(key)).forEach(el => el.classList.add('narration-highlight')));
-}
-function playCourseStage() {
-  const module = getCourseModule();
-  const lesson = module?.lessons[getCourseProgress(module).currentStep];
-  const step = lesson?.type === 'interactive' ? getWatchLearnSteps()[courseLessonStage] : getCourseGuidedSlides(module, lesson)[courseLessonStage];
-  stopNarrationEngine();
-  const token = ++courseNarrationToken;
-  const segment = step?.segment || (step?.text ? { language: step.language || 'en', text: step.text } : null);
-  if (!segment) {
-    setCourseNarrationStatus('This is a visual practice step. Choose an answer, then continue.');
-    return;
-  }
-  setCourseNarrationCaption(segment);
-  setCourseNarrationStatus(`${segment.language === 'en' ? 'English' : 'Spanish'} narration · current content only`);
-  playNarrationSegment(segment, {
-    rate: courseVoiceRate,
-    onStatus: status => setCourseNarrationStatus(status),
-    onEnd: () => {
-      if (token === courseNarrationToken) setCourseNarrationStatus('Audio finished. Replay this step or continue when ready.');
-    },
-    onError: () => {
-      if (token === courseNarrationToken) setCourseNarrationStatus('Narration unavailable. Continue with the visual lesson.');
-    }
-  });
-}
-function pauseCourseVoice() {
-  pauseNarrationEngine();
-  $('.interactive-lesson')?.classList.add('narration-paused');
-  setCourseNarrationStatus('Paused · press Resume to continue this step.');
-}
-function resumeCourseVoice() {
-  $('.interactive-lesson')?.classList.remove('narration-paused');
-  resumeNarrationEngine();
-}
-function stopCourseNarration(clearCaption = false) {
-  courseNarrationToken++;
-  stopNarrationEngine(); clearCourseNarrationHighlights();
-  $('.interactive-lesson')?.classList.remove('narration-paused');
-  if (clearCaption) { courseLessonSubtitle = ''; courseLessonSubtitleLang = 'es'; const caption = $('#lesson-subtitle'); if (caption) caption.textContent = 'Captions will appear here during narration.'; }
-  const play = $('#lesson-play'); if (play) play.textContent = '▶ Play';
-  setCourseNarrationStatus('Narration stopped.');
-}
 function initializeTextToSpeechTool() {
   if (ttsInitialized) { populateTtsVoices(); return; }
   ttsInitialized = true;
@@ -669,14 +483,14 @@ function initializeTextToSpeechTool() {
 }
 function populateTtsVoices(selectBest = false) {
   const select = $('#tts-voice'); if (!select) return;
-  const voices = loadCourseSpeechVoices().filter(v => v.lang.toLowerCase().startsWith(ttsLanguage === 'es' ? 'es' : 'en'));
+  const voices = loadSpeechVoices().filter(v => v.lang.toLowerCase().startsWith(ttsLanguage === 'es' ? 'es' : 'en'));
   const prior = selectBest ? '' : select.value;
   select.innerHTML = `<option value="">Best available voice</option>` + voices.map((v,i) => `<option value="${i}">${escapeHTML(v.name)} (${escapeHTML(v.lang)})</option>`).join('');
   if (prior && [...select.options].some(o => o.value === prior)) select.value = prior;
   else if (selectBest) select.value = '';
   $('#tts-voice-note').textContent = voices.length ? `${voices.length} ${ttsLanguage === 'es' ? 'Spanish' : 'English'} system voice(s) available.` : 'No matching system voices listed yet; the browser default may still be used.';
 }
-function selectedTtsVoice() { const i = Number($('#tts-voice')?.value); return $('#tts-voice')?.value ? loadCourseSpeechVoices().filter(v => v.lang.toLowerCase().startsWith(ttsLanguage === 'es' ? 'es' : 'en'))[i] || null : getBestVoice(ttsLanguage); }
+function selectedTtsVoice() { const i = Number($('#tts-voice')?.value); return $('#tts-voice')?.value ? loadSpeechVoices().filter(v => v.lang.toLowerCase().startsWith(ttsLanguage === 'es' ? 'es' : 'en'))[i] || null : getBestVoice(ttsLanguage); }
 function setTtsStatus(text) { const status = $('#tts-status'); if (status) status.textContent = text; }
 function playTtsText(replay = false) {
   const field = $('#tts-text');
@@ -734,7 +548,7 @@ function advanceCourse(module, progress, step) {
   }
   if (step.type !== 'results' && !progress.completedLessons.includes(step.id)) progress.completedLessons.push(step.id);
   progress.currentStep = Math.min(progress.currentStep + 1, module.lessons.length - 1);
-  courseLessonStage = 0;
+
   saveStats();
   renderCourse();
   renderStats();

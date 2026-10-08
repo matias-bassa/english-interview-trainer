@@ -17,14 +17,14 @@ There is no build step: publish the repository root with GitHub Pages (or anothe
 ## Practice areas
 
 - **Interview Practice:** role-focused interview questions, sample answers, and useful vocabulary.
-- **Intensive Course:** a step-by-step, visual Module 1 on Past Simple vs Present Perfect, including a local animated Watch & Learn mini-lesson with nine scenes presented as focused stages (explanation, concept, examples, comparison, and checks), bilingual narration, captions, playback and scene controls, guided/interview practice, a five-part final exam, and local results tracking.
+- **Intensive Course:** Module 1 on Past Simple vs Present Perfect, organized as Introduction → Watch & Learn video → Study Guide → Examples → Guided Practice → Practice → Interview Application → Final Exam → Results. Watch & Learn uses a native video player with optional poster and WebVTT captions. Until the real video is supplied, the lesson shows a clear pending state. Study Guide contains accordions for theory, rules, extra examples, common mistakes, and interview English. Practice results and recurring weaknesses stay local.
 - **Text to Speech:** an independent browser-native reader for English and Spanish, with voice selection, speed, playback controls, and selected-text playback.
 - **Grammar Practice:** ten priority grammar topics, categorized practice, immediate feedback in Spanish, and a local record of mistakes by topic.
 - **Speaking Practice:** optional microphone transcription, manual text entry, useful ideas, model answer after an attempt, and supportive feedback.
 - **Mock Interview:** choose Customer Support, Technical Support, General Interview, or Remote Work, and Beginner, Intermediate, or Interview Ready. It asks one question at a time, gives feedback after each answer, and summarizes the interview.
 - **Progress:** grammar accuracy and weaknesses, course lessons and exam results, speaking attempts and sessions, average response length, and recommended practice.
 
-The Intensive Course lessons are configured in `course-data.js`. New modules can add lesson content and activities there while reusing the course navigation, local progress, and assessment flow in `app.js`. Watch & Learn keeps its nine scenes and presents each as data-defined stages. Scene 02 demonstrates the complete explanation → key question → progressive examples → comparison → mini-check flow; its mini-check uses the module’s existing local exercise and weakness tracking. Scene audio is data-driven and played by the shared narration engine: a segment can provide a local `audioSrc` (MP3-first) or fall back to browser `SpeechSynthesis`. Lesson flow waits for the audio segment’s actual end event and uses `LESSON_TIMING` only for pauses between content; selected stages explicitly wait for the learner. Local audio assets may be added under `audio/module-1/`. No external service, account, key, or dependency is required. Voice availability depends on browser and installed system voices; visual and manual scene controls remain available if synthesis is unsupported.
+The Intensive Course lessons are configured in `course-data.js`; course video sources are centralized in `window.COURSE_VIDEO_ASSETS`. Watch & Learn does not use browser text-to-speech. Add the real MP4, optional poster, and optional WebVTT file under `assets/videos/module-1/`, then set their relative paths in that configuration. The player uses the browser’s native video controls and never advances the course automatically. No fictional media URL is configured. The independent Text to Speech tool continues to use the browser’s SpeechSynthesis API.
 
 ## Speech recognition and feedback limits
 
@@ -42,6 +42,7 @@ Grammar totals, grammar weaknesses, interview answer drafts and feedback, Intens
 - `styles.css` — responsive visual design.
 - `course-data.js` — configurable Intensive Course modules, lessons, examples, exercises, and exam content.
 - `app.js` — interview prompts, grammar exercises, course flow, shared narration/TTS, speech recognition, text-based analysis, mock interview flow, and local progress.
-- `audio/module-1/` — reserved for optional local narration audio, such as MP3 files; none are required.
+- `assets/videos/module-1/` — location and instructions for the optional real Watch & Learn MP4, poster, and WebVTT captions. No media files are included yet.
+- `audio/` — reserved for optional audio assets used by independent text-to-speech workflows.
 - `serve.js` — optional Node.js built-in static server for local browser testing; it is not used by published static hosting.
 - `.gitignore` — excludes common operating-system, editor, and local development artifacts.

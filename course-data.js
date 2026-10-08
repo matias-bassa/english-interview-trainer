@@ -1,13 +1,28 @@
 /* Course content is data-driven so later modules can add their own steps and activities. */
+window.COURSE_VIDEO_ASSETS = {
+  module1: {
+    watchLearn: {
+      status: 'pending',
+      videoSrc: '',
+      poster: '',
+      captions: '',
+      transcript: '',
+      duration: '',
+      description: 'A complete video lesson comparing finished past time with experience connected to now.',
+      expectedVideoPath: 'assets/videos/module-1/past-simple-vs-present-perfect.mp4',
+      expectedPosterPath: 'assets/videos/module-1/past-simple-vs-present-perfect.jpg',
+      expectedCaptionsPath: 'assets/videos/module-1/past-simple-vs-present-perfect.vtt'
+    }
+  }
+};
 window.INTENSIVE_COURSE_MODULES = [
   {
     id: 'past-simple-present-perfect',
     title: 'Module 1 — Past Simple vs Present Perfect',
     lessons: [
       { id: 'introduction', title: 'Introduction', type: 'introduction' },
-      { id: 'interactive-lesson', title: 'Watch & Learn', type: 'interactive' },
-      { id: 'theory', title: 'Theory', type: 'theory' },
-      { id: 'visual-explanation', title: 'Visual explanation', type: 'visual' },
+      { id: 'interactive-lesson', title: 'Watch & Learn', type: 'video', assetKey: 'module1.watchLearn' },
+      { id: 'theory', title: 'Study Guide', type: 'study-guide' },
       { id: 'examples', title: 'Examples', type: 'examples' },
       { id: 'guided-practice', title: 'Guided practice', type: 'guided', category: 'Past Simple' },
       { id: 'practice', title: 'Practice', type: 'practice', category: 'Present Perfect vs Past Simple' },
@@ -28,6 +43,29 @@ window.INTENSIVE_COURSE_MODULES = [
         examples: ['I have worked in technical support.', 'I have worked with customers.', 'I have never worked remotely before.', 'I have lived in another city since 2017.'],
         signals: ['ever', 'never', 'already', 'yet', 'just', 'since', 'for']
       }
+    },
+    studyGuide: {
+      theoryIntro: 'La decisión depende del período que querés expresar: un hecho ubicado en un tiempo pasado que ya terminó, o una experiencia/situación conectada con el presente.',
+      keyRules: [
+        { title: 'Past Simple', rule: 'Usalo para acciones presentadas dentro de un período pasado terminado. El momento puede estar expresado o entenderse por contexto.', example: 'I worked at a support company in 2020.' },
+        { title: 'Present Perfect', rule: 'Usalo para experiencias hasta ahora, situaciones que continúan o resultados pasados relevantes ahora, normalmente sin indicar una fecha pasada terminada.', example: 'I have worked in technical support.' },
+        { title: 'Form', rule: 'Present Perfect = have/has + past participle. En preguntas de experiencia, have/has va antes del sujeto.', example: 'Have you ever worked with customers?' }
+      ],
+      additionalExamples: [
+        { sentence: 'I started working in customer service two years ago.', note: '“Two years ago” ubica el comienzo en un momento pasado terminado.' },
+        { sentence: 'I have handled customer questions in English.', note: 'Presenta una experiencia relevante hasta ahora y no especifica cuándo.' },
+        { sentence: 'I have used ticketing systems since 2022.', note: '“Since 2022” conecta el comienzo con una situación que continúa ahora.' }
+      ],
+      commonMistakes: [
+        { wrong: 'I have worked there in 2020.', correct: 'I worked there in 2020.', note: '“In 2020” es un momento terminado. En este significado, elegí Past Simple.' },
+        { wrong: 'Have you ever work with customers?', correct: 'Have you ever worked with customers?', note: 'Después de have, se usa el participio pasado: worked.' },
+        { wrong: 'I have worked there for five months.', correct: 'I worked there for five months.', note: 'Si los cinco meses ya terminaron, Past Simple es natural. “For” por sí sola no determina el tiempo.' }
+      ],
+      interviewEnglish: [
+        { sentence: 'I worked in technical support in 2020.', purpose: 'Da un período laboral específico y terminado.' },
+        { sentence: 'I have helped customers solve technical problems.', purpose: 'Resume experiencia relevante sin nombrar una fecha terminada.' },
+        { sentence: 'I have worked with international customers, and I handled email support in my previous role.', purpose: 'Combina experiencia general con una tarea del puesto anterior.' }
+      ]
     },
     comparisons: [
       { past: 'I worked there in 2020.', present: 'I have worked in customer support.', note: 'La primera frase ubica el trabajo en 2020, un período terminado. La segunda presenta la experiencia sin decir cuándo ocurrió; esa experiencia es relevante ahora.' },
