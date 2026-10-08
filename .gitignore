@@ -1,0 +1,16 @@
+# Windows and editor-generated files
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/
+
+# Local development output
+*.log
+node_modules/
+__pycache__/
+
+# Secrets and private local configuration
+.env
+.env.*
+!.env.example
